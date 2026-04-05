@@ -1,0 +1,33 @@
+.venv/
+
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+
+
+
+# OS files
+.DS_Store
+/src/old
+# Large model checkpoints (often huge)
+**/checkpoint-*/
+**/scheduler-*/
+
+**/ios/
+
+
+**/deberta_data/
+**/modernbert_data/
+**/modernbert_ner_model/
+**/modernbert_intent_model/
+**/roberta-intent-scheduler/
+**/roberta-ner-scheduler/
+**/risk_prediction_model_shap_explainer.pkl
+**/risk_prediction_model.pkl
+**/firebase-service-account.json
+**/firebase-service-account/
+
+
+
+

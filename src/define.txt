@@ -1,0 +1,2964 @@
+================================================================================
+                       SCHEDULER AI - APPLICATION DOCUMENTATION
+================================================================================
+
+                              TABLE OF CONTENTS
+                              -----------------
+1. INTRODUCTION
+2. SYSTEM ARCHITECTURE OVERVIEW  
+3. BACKEND STRUCTURE (Python/FastAPI)
+   3.1  main.py - Core API Server
+   3.2  scheduler_engine.py - NLU Pipeline
+   3.3  router.py - Multi-Signal Router
+   3.4  IntentEngine.py - Intent Execution Engine
+   3.5  optimiser.py - Calendar Optimisation Engine
+   3.6  task.py - Task Scheduling Engine
+   3.7  categorise.py - Event Categorisation
+   3.8  llm_parser.py - Constraint Parser
+   3.9  llm_duration.py - Duration Estimator
+   3.10 custom_exceptions.py - Structured Exception Classes
+4. FRONTEND STRUCTURE (Next.js/React/Capacitor)
+   4.1  Pages (App Router)
+        4.1.1  page.tsx (Dashboard/Calendar)
+        4.1.2  ai/page.tsx (AI Chat Interface)
+        4.1.3  tasks/page.tsx (Task Management)
+        4.1.4  reminders/page.tsx (Reminders Management)
+        4.1.5  settings/page.tsx (Settings Hub)
+        4.1.6  analytics/page.tsx (Time Debt Analytics)
+        4.1.7  login/page.tsx (Authentication)
+        4.1.8  register/page.tsx (User Registration)
+   4.2  Components
+        4.2.1  CustomCalendar.tsx - Interactive Calendar View
+        4.2.2  EventModal.tsx - Event CRUD Modal
+        4.2.3  TaskModal.tsx - Task CRUD Modal
+        4.2.4  RemindersModal.tsx - Reminder CRUD Modal
+        4.2.5  NavigationBar.tsx - Bottom Navigation
+        4.2.6  ConflictResolutionModal.tsx - Sync Conflict Handler
+        4.2.7  OptimisationPreferences.tsx - Preference Management
+        4.2.8  LinkedAccounts.tsx - External Calendar Linking
+        4.2.9  CalendarSafety.tsx - Rollback/Undo Controls
+        4.2.10 AiEventModal.tsx - AI Event Creation
+        4.2.11 OptimisationPrepModal.tsx - Pre-Optimisation Confirmation
+   4.3  Library/Utilities
+        4.3.1  AuthContext.tsx - Firebase Authentication Provider
+        4.3.2  NotificationProvider.tsx - Reminder/Geofence Engine
+        4.3.3  firebase.ts - Firebase Client Configuration
+        4.3.4  fetchUtils.ts - Network Resilience Wrapper
+        4.3.5  useSpeech.ts - Voice Input Hook
+        4.3.6  places.ts - Google Places API Client
+        4.3.7  proxy.ts - API Proxy Configuration
+   4.4  Types
+        4.4.1  types.ts - TypeScript Type Definitions
+5. AI/ML MODELS
+6. DATA FLOW & INTERACTIONS
+7. KEY FEATURES
+8. FIREBASE DATA SCHEMA
+
+================================================================================
+                              1. INTRODUCTION
+================================================================================
+
+Scheduler AI is an intelligent scheduling application designed for iOS and 
+desktop platforms. It combines Natural Language Understanding (NLU) with 
+Large Language Model (LLM) capabilities to provide a conversational interface 
+for calendar and task management.
+
+The application allows users to:
+- Create, update, delete, and query calendar events via natural language
+- Manage tasks with intelligent scheduling and time-blocking
+- Set reminders with time-based or location-based triggers (geofencing)
+- Sync calendars from Google Calendar and Microsoft Outlook
+- Receive AI-powered schedule optimisation recommendations
+- Track "Time Debt" - a gamification system for accountability
+- Authenticate via Firebase, Passkeys (WebAuthn), or Native Biometrics
+- Resolve calendar conflicts when external changes are detected
+
+The core philosophy is an "Escalation Pattern" - every user input first goes 
+through fast, local NLU models (ModernBERT). If the local models are confident, 
+they execute directly. If they're uncertain, the request silently escalates to 
+Gemini 2.0 Flash for more sophisticated processing. The user never sees this 
+routing decision - they always receive a coherent response.
+
+TECH STACK:
+- Backend: Python 3.12, FastAPI, Firebase Admin SDK
+- Frontend: Next.js 14 (App Router), React 18, TypeScript, TailwindCSS
+- Mobile: Capacitor 6 (iOS native build via Xcode)
+- Database: Firebase Firestore (NoSQL document store)
+- AI/ML: ModernBERT (Hugging Face Transformers), Google Gemini 2.0 Flash
+- Auth: Firebase Auth, WebAuthn/Passkeys, Native Biometrics (Face ID/Touch ID)
+- External APIs: Google Calendar API, Microsoft Graph API, Google Places API
+
+================================================================================
+                        2. SYSTEM ARCHITECTURE OVERVIEW
+================================================================================
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         FRONTEND (Next.js + Capacitor)                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │  Calendar   │  │   Tasks     │  │  Reminders  │  │  Analytics  │        │
+│  │   (Home)    │  │   Page      │  │    Page     │  │    Page     │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
+│         │                │                │                │               │
+│         └────────────────┴────────────────┴────────────────┘               │
+│                                   │                                        │
+│                    ┌──────────────▼──────────────┐                         │
+│                    │    AI Chat Page (/ai)       │                         │
+│                    │  - Message bubbles          │                         │
+│                    │  - Clarification UI         │                         │
+│                    │  - Voice input support      │                         │
+│                    └──────────────┬──────────────┘                         │
+│                                   │                                        │
+│  ┌────────────────────────────────┴────────────────────────────────────┐   │
+│  │                   NotificationProvider (Context)                     │   │
+│  │   - Firebase Auth listener                                          │   │
+│  │   - Firestore real-time sync for reminders                          │   │
+│  │   - Native iOS notification scheduling                              │   │
+│  │   - Background geofencing (Capgo plugin)                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────┬───────────────────────────────────────┘
+                                     │ HTTP/REST (Tailscale VPN)
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           BACKEND (FastAPI)                                 │
+│                                                                            │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                         main.py (API Layer)                          │  │
+│  │  - Authentication (Firebase, WebAuthn, Native Biometrics)            │  │
+│  │  - Calendar CRUD Endpoints + Bi-directional Sync                     │  │
+│  │  - Task CRUD Endpoints + AI Duration Estimation                      │  │
+│  │  - Reminder CRUD Endpoints                                           │  │
+│  │  - AI Parse Endpoint (/api/ai/parse) with Chat History               │  │
+│  │  - Optimisation Preview/Commit Endpoints                             │  │
+│  │  - Analytics/Time Debt Sweeper                                       │  │
+│  │  - Calendar Snapshot & Rollback System                               │  │
+│  │  - Risk Prediction Model (SHAP Explainer)                            │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                               │                                            │
+│              ┌────────────────┼────────────────┐                           │
+│              ▼                ▼                ▼                           │
+│  ┌───────────────────┐ ┌─────────────┐ ┌─────────────────┐                │
+│  │  MultiSignalRouter│ │ Optimiser   │ │ TaskScheduler   │                │
+│  │    (router.py)    │ │(optimiser.py)│ │   (task.py)     │                │
+│  │  - 7 Signal       │ │ - Constraint │ │ - Priority Sort │                │
+│  │    Pipeline       │ │   Satisfaction│ │ - Chunk Logic  │                │
+│  │  - Chat History   │ │ - Routines   │ │ - Day Spacing  │                │
+│  │    Awareness      │ │   Injection  │ │                │                │
+│  └─────────┬─────────┘ └─────────────┘ └─────────────────┘                │
+│            │                                                               │
+│            ▼                                                               │
+│  ┌───────────────────┐                                                    │
+│  │   SchedulerNLU    │◄────────────────────────────────────┐              │
+│  │(scheduler_engine) │                                      │              │
+│  │  - Intent Model   │                                      │              │
+│  │  - NER Pipeline   │                                      │              │
+│  │  - Time Regex     │                                      │              │
+│  └─────────┬─────────┘                                      │              │
+│            │                                                │              │
+│            ▼                                                │              │
+│  ┌───────────────────┐    ┌─────────────────────────────┐  │              │
+│  │IntentExecution    │    │   LLM Fallback (Gemini)     │──┘              │
+│  │    Engine         │    │   - Complex requests        │                 │
+│  │ (IntentEngine.py) │    │   - Ambiguous inputs        │                 │
+│  │  - 16 Intents     │    │   - Conversational queries  │                 │
+│  │  - 5-Tier Title   │    │   - Chat History Context    │                 │
+│  │    Resolution     │    └─────────────────────────────┘                 │
+│  │  - Ambiguity &    │                                                    │
+│  │    Conflict Errors│                                                    │
+│  └─────────┬─────────┘                                                    │
+│            │                                                               │
+│            ▼                                                               │
+│  ┌───────────────────────────────────────────────────────────────────────┐│
+│  │                     Firebase Firestore Database                        ││
+│  │  Collections: users/{uid}/raw_events, raw_tasks, reminders,           ││
+│  │               preferences, calendar_snapshots                          ││
+│  └───────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+                    3. BACKEND STRUCTURE (Python/FastAPI)
+================================================================================
+
+-------------------------------------------------------------------------------
+3.1 main.py - Core API Server (~3400 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Central FastAPI application serving all REST endpoints. Includes 
+AI model lifecycle management, authentication, calendar sync, and analytics.
+
+KEY COMPONENTS:
+
+A) LIFESPAN MANAGER & AI MODEL LOADING
+   - Loads risk_prediction_model.pkl (scikit-learn classifier)
+   - Loads risk_prediction_model_shap_explainer.pkl (SHAP for explainability)
+   - Loads risk_prediction_model_meta.json (feature metadata)
+   - Models used for predicting task/event failure risk
+
+B) AUTHENTICATION MODULE
+   - Firebase Admin SDK integration for user management
+   - WebAuthn/Passkey support for passwordless login (desktop)
+   - Native mobile biometric authentication (iOS Face ID/Touch ID via Capgo)
+   - OAuth2 flows for Google and Microsoft accounts
+   
+   Endpoints:
+   - POST /api/auth/register/start        - Initiate passkey registration
+   - POST /api/auth/register/verify       - Complete passkey registration
+   - POST /api/auth/login/start           - Initiate passkey login
+   - POST /api/auth/login/verify          - Complete passkey login
+   - POST /api/auth/mobile-biometric-login - Native iOS biometric auth
+   - POST /api/auth/mobile-biometric-register - Register mobile biometrics
+   - GET  /api/auth/google/login          - Start Google OAuth flow
+   - GET  /api/auth/google/callback       - Handle Google OAuth callback
+   - GET  /api/auth/outlook/login         - Start Microsoft OAuth flow
+   - GET  /api/auth/outlook/callback      - Handle Microsoft OAuth callback
+
+C) CALENDAR SYNCHRONISATION
+   Functions:
+   - get_google_calendar_events(refresh_token, email, sync_id)
+     → Fetches events from Google Calendar API (±30 days)
+   - get_outlook_calendar_events(refresh_token, email, sync_id)
+     → Fetches events from Microsoft Graph API (±30 days)
+   
+   Endpoints:
+   - POST /api/calendar/sync              - Full bi-directional calendar sync
+   - POST /api/calendar/new               - Create event manually (non-AI)
+   - POST /api/calendar/update            - Update event manually (non-AI)
+   - DELETE /api/calendar/delete-event    - Delete event manually
+   - POST /api/calendar/disconnect        - Unlink external calendar account
+   - POST /api/calendar/resolve           - Resolve sync conflicts
+
+D) CALENDAR OPTIMISATION & SNAPSHOTS
+   Functions:
+   - create_calendar_snapshot()           - Creates rollback point before optimisation
+   - hash_event_list()                    - Generates fingerprint for change detection
+   
+   Endpoints:
+   - POST /api/calendar/optimise/preview  - Generate AI optimisation suggestions
+   - POST /api/calendar/optimise/commit   - Apply optimised schedule permanently
+   - POST /api/calendar/snapshot/undo     - Rollback to previous calendar state
+   - GET  /api/calendar/snapshots/list    - List available snapshots
+
+E) PREFERENCES MANAGEMENT
+   Endpoints:
+   - POST /api/preferences/parse          - Parse natural language preference
+   - GET  /api/preferences/list           - List all user preferences
+   - DELETE /api/preferences/{id}         - Delete a preference
+
+F) TASK MANAGEMENT
+   Endpoints:
+   - POST /api/tasks/create               - Create new task
+   - GET  /api/tasks/list/{user_id}       - List all user tasks
+   - PUT  /api/tasks/update               - Update existing task
+   - DELETE /api/tasks/delete             - Delete task
+   - POST /api/tasks/estimate-duration    - AI estimation of task duration
+   - POST /api/tasks/schedule/preview     - Preview task time-blocking
+   - POST /api/tasks/schedule/commit      - Commit task blocks to calendar
+
+G) REMINDER MANAGEMENT
+   Endpoints:
+   - POST /api/reminders/create           - Create new reminder
+   - GET  /api/reminders/list/{user_id}   - List all user reminders
+   - PUT  /api/reminders/update           - Update reminder
+   - DELETE /api/reminders/delete         - Delete reminder
+
+H) AI NATURAL LANGUAGE INTERFACE
+   Endpoint:
+   - POST /api/ai/parse                   - THE MAIN CHATBOT ENDPOINT
+     Request Body:
+     {
+       "text": "schedule lunch with Sarah tomorrow at 1pm",
+       "user_id": "firebase_uid",
+       "timezone": "Europe/London",
+       "chat_history": [{"role": "user", "content": "..."}, ...]
+     }
+     
+     Processing:
+     1. Builds context string (upcoming events, pending tasks)
+     2. Formats chat_history for LLM context
+     3. Routes through MultiSignalRouter.evaluate()
+     4. Handles AmbiguityError → returns clarification_needed response
+     5. Handles SlotConflictError → returns slot suggestion
+     6. Dispatches to appropriate IntentExecutionEngine handler
+     7. Returns structured response or conversational message
+
+I) LOCATION & TRAVEL TIME
+   Endpoints:
+   - GET  /api/places/autocomplete        - Google Places Autocomplete
+   - GET  /api/places/details             - Get coordinates from place ID
+   - POST /api/location/travel-time       - Calculate travel time via Routes API
+
+J) ANALYTICS & GAMIFICATION
+   Endpoint:
+   - POST /api/analytics/sweep/{user_id}  - "Tax Collector" Time Debt Sweeper
+     - Scans for expired events/tasks
+     - Marks them as "missed"
+     - Applies duration to Time Debt ledger
+     - Distinguishes "reschedulable debt" vs "sunk debt" (perishable items)
+   
+   - GET /api/analytics/dashboard/{user_id} - Full analytics dashboard data
+     Returns:
+     - core_ledgers: active_debt_mins, sunk_debt_mins, time_refunded_mins
+     - procrastination_profile: snooze patterns per category
+     - risk_forecast: average_risk_score, danger_zone items
+     - energy_analytics: high/medium/low energy distribution
+     - completion_funnel: task_completion_rate, routine_adherence, trends
+     - advanced_metrics: priority_alignment, peak_action_window, friction
+
+K) RISK PREDICTION
+   - Uses loaded ML model to predict failure probability
+   - Features: snooze_count, energy_level, priority, time_since_creation
+   - SHAP explainer provides feature importance for each prediction
+
+-------------------------------------------------------------------------------
+3.2 scheduler_engine.py - NLU Pipeline (~405 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Core Natural Language Understanding engine using fine-tuned ModernBERT 
+models for intent classification and Named Entity Recognition (NER).
+
+CLASS: SchedulerNLU
+
+CONSTRUCTOR PARAMETERS:
+- intent_path: Path to fine-tuned intent classification model
+- ner_path: Path to fine-tuned NER model
+- gemini_api_key: API key for LLM fallback
+- confidence_threshold: Minimum sigmoid probability for intent (default 0.85)
+
+INSTANCE VARIABLES:
+- tokenizer: AutoTokenizer for intent model
+- intent_model: AutoModelForSequenceClassification
+- intent_labels: List of 16 intent label strings
+- ner_pipe: Token classification pipeline with "simple" aggregation
+- gemini_client: Google Gemini API client (optional)
+- _time_regex: Compiled regex for time pattern extraction
+
+KEY METHODS:
+
+1. format_entities(raw_ner, text) -> dict
+   - Converts raw NER pipeline output into structured entity dictionary
+   - Merges adjacent tokens of same entity type using start/end offsets
+   - Returns dict with keys: dates, times, people, events, tasks, locations,
+     durations, recurrence, reminders, preferences, conditions
+
+2. normalise_time(entities, user_timezone) -> str | None
+   - Converts extracted date/time entities to ISO UTC timestamp
+   - Handles weekday names ("next Friday", "this Monday")
+   - Uses dateparser for complex expressions with RELATIVE_BASE
+   - Always returns UTC for database storage
+   - Handles timezone-aware conversions
+
+3. _extract_time_entities_regex(text) -> dict
+   - Fallback regex extraction when NER fails
+   - Time patterns: "3pm", "noon", "midnight", "half past 9"
+   - Date patterns: weekdays, "today", "tomorrow", relative dates
+   - Duration patterns: "2 hours", "30 mins", "half an hour"
+
+4. calculate_end_time(start_iso, entities, user_timezone) -> str
+   - Calculates event end time from start + duration
+   - If two times extracted, uses second as end time
+   - Default: 1 hour duration
+   - Handles cross-midnight events
+
+5. llm_fallback(user_input, reason, user_context, chat_history) -> dict | None
+   - Escalates to Gemini 2.0 Flash when local models fail
+   - Provides structured prompt with:
+     * User's upcoming schedule context
+     * Recent chat history for reference resolution
+     * Current timestamp and timezone
+   - Returns same structure as local NLU for seamless dispatch
+   - Includes special rules for bulk operations
+   - Handles conversational responses for chat continuations
+
+6. process(text, user_context, chat_history) -> dict
+   - MAIN ENTRY POINT for NLU processing
+   - Tokenizes input and runs through intent model
+   - Applies sigmoid for multi-label classification
+   - Runs NER pipeline for entity extraction
+   - Validates critical entity requirements per intent
+   - Falls back to regex time extraction if NER misses patterns
+   - Falls back to LLM if validation fails
+   - Returns: {source, intents, confidence_scores, entities, text}
+
+SUPPORTED INTENTS (16 total):
+- CREATE_EVENT, UPDATE_EVENT, DELETE_EVENT, QUERY_EVENT
+- FIND_FREE_TIME, SUGGEST_TIME, CHANGE_RECURRENCE
+- CREATE_TASK, UPDATE_TASK, DELETE_TASK, COMPLETE_TASK, QUERY_TASK
+- SET_REMINDER, UPDATE_REMINDER, DELETE_REMINDER
+- SET_PREFERENCES
+
+-------------------------------------------------------------------------------
+3.3 router.py - Multi-Signal Router (~413 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Intelligent routing layer that decides whether to handle requests 
+locally (ModernBERT) or escalate to LLM (Gemini). Uses multiple cheap signals 
+before expensive model inference.
+
+CLASS: MultiSignalRouter
+
+CONSTRUCTOR:
+- nlu_engine: SchedulerNLU instance
+- centroids_path: Path to intent_centroids.npy file
+
+ARCHITECTURE: Escalation Pattern
+- Every input enters NLU pipeline first
+- If NLU succeeds (validated, confident) → execute directly
+- If NLU fails at any signal → silently escalate to LLM
+- Caller never handles routing decisions - only results
+
+COMPLEXITY PATTERNS (with weights):
+```python
+complexity_patterns = {
+    "conditional":        {"weight": 2, "patterns": ["if ", "unless", "depending on", ...]},
+    "vague_time":         {"weight": 2, "patterns": ["sometime", "whenever", "eventually", ...]},
+    "relative_ops":       {"weight": 2, "patterns": ["move all", "reschedule everything", ...]},
+    "conversational":     {"weight": 2, "patterns": ["do you think", "help me plan", ...]},
+    "referential":        {"weight": 2, "patterns": ["move it to", "delete it", "those tasks", ...]},
+    "cross_domain_action":{"weight": 2, "patterns": ["and update the associated", ...]},
+    "multi_step":         {"weight": 1, "patterns": ["and then", "after that", "and also", ...]},
+    "bulk_refs":          {"weight": 1, "patterns": ["all my", "every ", "everything", ...]},
+}
+```
+
+SIGNAL PIPELINE (ordered cheapest to most expensive):
+
+SIGNAL 1: Conversational Continuation Detection (0ms)
+- Method: _is_conversational_continuation(text, chat_history)
+- Parses last assistant turn from chat history
+- If last turn was a scheduling action result → don't apply continuation
+- If last turn was conversational AND current input has no scheduling 
+  keywords → escalate as chat continuation
+
+SIGNAL 2: General Question Detection (0ms)
+- Method: _is_general_question(text)
+- Catches out-of-domain queries ("What is the capital of France?")
+- Exception: Scheduling queries with question words pass through
+
+SIGNAL 3: Weighted Linguistic Complexity (0ms)
+- Method: _get_complexity_score(text)
+- Threshold: 2 (any strong signal OR two weak signals)
+- Safe phrases excluded: "what is my", "show me my", etc.
+
+SIGNAL 4: Embedding OOD Check (~150ms)
+- Method: _embedding_similarity_check(text)
+- Compares CLS embedding against stored intent centroids
+- Threshold: 0.65 cosine similarity
+- Catches inputs unlike any training data
+
+SIGNAL 5: Full NLU Pipeline (~300-500ms)
+- Calls SchedulerNLU.process() with chat_history
+- Validates intent confidence threshold
+
+SIGNAL 6: Entity Artifact Filter
+- Method: _clean_entities(entities)
+- Removes NER tokenisation noise (tokens < 3 chars)
+- Preserves critical entity types
+
+SIGNAL 7: Per-Intent Validation
+- Method: _run_intent_validation(intent, entities, raw_text)
+- Validates required slots are filled per intent
+- Special validation for SET_REMINDER, DELETE_REMINDER
+
+SIGNAL 8: Confidence Margin Tiebreaker
+- For single-intent results only
+- Margin threshold: 0.15
+- Ensures clear winner vs ambiguous split
+
+KEY METHODS:
+
+1. _is_conversational_continuation(text, chat_history) -> bool
+   - Detects chat follow-ups vs fresh scheduling commands
+   - Prevents accidental escalation when user continues conversation
+
+2. _is_interrogative_query(text) -> bool
+   - Detects questions: "is", "are", "do", "does", ends with "?"
+
+3. _escalate_to_llm(text, reason, stage, user_context, chat_history) -> dict
+   - Wraps LLM result with routing metadata
+   - Returns consistent dispatchable structure
+   - Gracefully handles LLM unavailability
+
+4. evaluate(text, user_context, chat_history) -> dict
+   - MAIN ENTRY POINT
+   - Runs all signal checks in order
+   - Returns dispatchable result with source field:
+     - "Local_ModernBERT" = NLU handled it
+     - "LLM_Escalation" = LLM handled it
+     - "escalation_failed" = Neither available
+
+5. dispatch(nlu_result, user_id, intent_handlers) -> list
+   - Executes all validated intents sequentially
+   - Each handler receives full entity dict
+   - Returns list of {intent, result, status} per intent
+
+REQUIRED SLOTS PER INTENT:
+```python
+required_slots = {
+    "CREATE_EVENT":      ["events", "dates"],
+    "UPDATE_EVENT":      [],
+    "DELETE_EVENT":      ["events"],
+    "QUERY_EVENT":       [],
+    "FIND_FREE_TIME":    [],
+    "SUGGEST_TIME":      [],
+    "CHANGE_RECURRENCE": ["events", "recurrence"],
+    "CREATE_TASK":       ["tasks"],
+    "UPDATE_TASK":       [],
+    "DELETE_TASK":       ["tasks"],
+    "COMPLETE_TASK":     ["tasks"],
+    "QUERY_TASK":        [],
+    "SET_REMINDER":      [],
+    "UPDATE_REMINDER":   [],
+    "DELETE_REMINDER":   [],
+    "SET_PREFERENCES":   [],
+}
+```
+
+-------------------------------------------------------------------------------
+3.4 IntentEngine.py - Intent Execution Engine (~2355 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Database interaction layer. Contains handlers for all 16 supported 
+intents, performing actual CRUD operations on Firestore. Includes sophisticated
+title resolution and structured exception handling.
+
+CLASS: IntentExecutionEngine
+
+CONSTRUCTOR PARAMETERS:
+- db_client: Firestore Client instance
+- nlu_engine: SchedulerNLU instance (for embedding-based title matching)
+- gemini_api_key: For LLM-based title resolution fallback
+
+TITLE RESOLUTION SYSTEM (5-Tier Cascade):
+When user says "reschedule the meeting", the engine must find which event:
+
+1. Alias Resolution - Expands user aliases ("fyp" → "Final Year Project")
+2. Substring Match - "meeting" in "Team Meeting" ✓
+3. Fuzzy Match (RapidFuzz) - "meating" → "Meeting" (>80% partial_ratio)
+4. WordNet Synonyms - "appointment" → finds "Meeting" (via NLTK)
+5. Embedding Match - Uses model CLS embeddings for semantic similarity (>0.75)
+6. Gemini Fallback - LLM-based resolution when all else fails
+
+CUSTOM EXCEPTIONS (imported from custom_exceptions.py):
+
+AmbiguityError:
+- Raised when multiple titles match the query
+- Carries: candidates (list of enriched dicts), query, entity_key
+- Each candidate includes: id, title, start, end, location, description
+- Frontend renders selection UI
+
+SlotConflictError:
+- Raised when CREATE_EVENT slot is already booked
+- Carries: requested_start/end, suggested_start/end, title
+- Frontend offers one-tap booking of suggested slot
+
+KEY HELPER METHODS:
+
+_resolve_with_aliases(title_query, aliases) -> list[str]
+- Returns candidate strings including alias expansions
+- Handles both forward and reverse alias lookup
+
+_resolve_or_raise(title_matches, title_to_item, query, entity_key)
+- 0 matches → returns None (try next resolution stage)
+- 1 match → returns full item dict with _doc_id
+- 2+ matches → raises AmbiguityError with enriched candidates
+
+_fetch_event_by_id(user_id, doc_id) -> dict | None
+- Direct Firestore fetch by document ID
+- Used after ambiguity resolution to avoid re-triggering title search
+
+_fetch_task_by_id(user_id, doc_id) -> dict | None
+- Same as above but for tasks collection
+
+_is_slot_available(user_id, start_iso, end_iso, exclude_doc_id) -> bool
+- Checks if time slot is free in user's calendar
+- Uses Firestore range query on "end" field
+
+_find_next_available_slot(user_id, start_iso, end_iso, exclude_doc_id) -> tuple
+- Finds next free 30-minute slot starting from given time
+- Searches up to 24 iterations (12 hours)
+
+_format_time(iso_string, user_timezone) -> str
+- Converts UTC ISO to "Friday at 3:00 PM" format for chat responses
+
+_parse_duration_minutes(duration_str) -> int
+- Converts "2 hours", "30 mins", "1h 30m" to integer minutes
+
+_get_wordnet_synonyms(word) -> set
+- Returns NLTK WordNet synonyms for semantic matching
+
+_fuzzy_match_title(title_query, candidates, threshold=80) -> list
+- RapidFuzz partial_ratio matching
+- Returns all candidates at max score
+
+_embedding_match_title(title_query, candidates, threshold=0.75) -> list
+- Uses NLU model CLS embeddings
+- Cosine similarity scoring
+
+_resolve_title_with_gemini(title_query, candidates) -> list
+- LLM-based semantic resolution
+- Returns JSON: {"matched_titles": [...]}
+
+INTENT HANDLERS:
+
+1. handle_create_event(entities, user_id, raw_text) -> dict
+   - Creates calendar event in Firestore
+   - Validates slot availability via _is_slot_available()
+   - If conflict: raises SlotConflictError with next available slot
+   - Assigns category via categorise_event()
+   - Initialises telemetry: completion_status, snooze_count, debt_applied, etc.
+   - Returns success message with formatted time
+
+2. handle_update_event(entities, user_id, raw_text) -> dict
+   - Updates one or more events
+   - Supports bulk moves ("move everything from Friday to Sunday")
+   - Two-pass algorithm: plan all moves first, then write all updates
+   - Tracks snooze_count when event pushed to future
+   - Handles "Debt Relief" - refunds Time Debt when missed event rescheduled
+   - Preserves proposed_start/end for optimisation context
+
+3. handle_delete_event(entities, user_id, raw_text) -> dict
+   - Deletes one or more events
+   - Supports day-based deletion targeting
+   - Handles recurrence exception logic
+
+4. handle_query_event(entities, user_id, raw_text) -> dict
+   - Three query scenarios:
+     a) Specific date: "What do I have on Friday?"
+     b) Specific title: "When is my exam?"
+     c) General: "What's next?" / "Am I free tomorrow?"
+   - Returns formatted natural language response with event details
+
+5. handle_find_free_time(entities, user_id, raw_text) -> dict
+   - Finds gaps in calendar for requested duration
+   - Respects working hours (typically 9am-6pm)
+   - Returns formatted available slots
+
+6. handle_suggest_time(entities, user_id, raw_text) -> dict
+   - Suggests optimal slot for activity
+   - Uses Optimiser for constraint-aware scheduling
+   - Warns if similar event already exists that day
+
+7. handle_change_recurrence(entities, user_id, raw_text) -> dict
+   - Modifies event recurrence pattern
+   - Supports: none, daily, weekly, monthly, custom days
+   - Updates recurrence_days array for custom patterns
+
+8. handle_create_task(entities, user_id, raw_text) -> dict
+   - Creates task with extracted metadata
+   - Infers priority from keywords: "urgent"→5, "important"→4, "low priority"→1
+   - Infers energy_level: "quick"→low, "deep work"→high
+   - Initialises telemetry fields
+
+9. handle_update_task(entities, user_id, raw_text) -> dict
+   - Updates task fields
+   - "Longest String" matching for task resolution
+   - Tracks snooze when due_date pushed forward
+   - Handles Debt Relief for missed→rescheduled tasks
+
+10. handle_complete_task(entities, user_id, raw_text) -> dict
+    - Marks task as completed
+    - Sets completed_at timestamp
+    - Cleans up future calendar blocks linked to task
+    - Handles late completion Debt Relief
+
+11. handle_delete_task(entities, user_id, raw_text) -> dict
+    - Deletes task from database
+    - Removes linked calendar blocks
+
+12. handle_query_task(entities, user_id, raw_text) -> dict
+    - Queries pending, scheduled, or completed tasks
+    - Supports timeframe queries ("What's due tomorrow?")
+    - Supports status queries ("What tasks are overdue?")
+
+13. handle_set_reminder(entities, user_id, raw_text) -> dict
+    - Creates standalone time-based reminder
+    - Extracts trigger_time from entities
+    - Sets default priority and repeat settings
+
+14. handle_update_reminder(entities, user_id, raw_text) -> dict
+    - Reschedules or modifies reminder
+    - Uses title resolution cascade
+
+15. handle_delete_reminder(entities, user_id, raw_text) -> dict
+    - Deletes reminder from database
+
+16. handle_set_preferences(entities, user_id, raw_text) -> dict
+    - Delegates to ConstraintParser for preference parsing
+    - Stores structured preference in Firestore
+
+METHOD: get_intent_map() -> dict
+- Returns mapping of intent strings to handler functions
+- Used by router.dispatch()
+
+-------------------------------------------------------------------------------
+3.5 optimiser.py - Calendar Optimisation Engine (~260 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Constraint satisfaction scheduler that finds optimal time slots 
+respecting user preferences.
+
+CLASSES:
+
+CLASS: TimeSlot
+- start: datetime
+- end: datetime
+- duration_minutes: int
+- score: int (higher = better)
+
+CLASS: BaseScheduler
+Base class with core scheduling logic.
+
+CONSTRUCTOR:
+- existing_events: List of calendar events
+- preferences: List of user preference constraints
+- interval_minutes: Slot search granularity (default 15)
+
+KEY METHODS:
+
+_get_day_boundaries(target_date) -> tuple
+- Returns (8:00 AM, 10:00 PM) as scheduling window
+
+_is_overlapping(slot_start, slot_end) -> bool
+- Checks if slot conflicts with existing events
+- Respects travel_time buffer before events
+
+_calculate_gaps(slot_start, slot_end) -> tuple
+- Returns (min_gap_before, min_gap_after) in minutes
+
+_fails_hard_constraints(slot_start, slot_end, event_category, gaps) -> bool
+- Checks WINDOW constraints (allowed time ranges)
+- Checks BUFFER constraints (required gaps)
+- Returns True if any hard constraint violated
+
+_score_soft_constraints(slot_start, slot_end, event_category, gaps, 
+                        relax_hard_constraints, original_start_dt) -> int
+- Starts at 100, deducts points for violations
+- Considers: preference windows, buffer preferences, back-to-back penalty
+- Preserves original time preference when rescheduling
+
+_search_slots(target_date, duration_minutes, event_category, 
+              relax_hard_constraints, original_start_dt) -> TimeSlot | None
+- Iterates through day in interval_minutes steps
+- Returns highest-scoring non-overlapping slot
+
+find_best_slot(target_date, duration_minutes, event_category, 
+               original_start_dt) -> TimeSlot | None
+- First tries with hard constraints enforced
+- If no slot found, relaxes hard constraints and applies heavy penalty
+
+CLASS: Optimiser(BaseScheduler)
+- inject_routines(start_date, end_date) -> List[Dict]
+  - Generates "ghost events" for routine preferences
+  - Idempotency check prevents duplicates
+
+-------------------------------------------------------------------------------
+3.6 task.py - Task Scheduling Engine (~410 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Intelligent task time-blocking that chunks tasks and schedules them 
+across multiple days while respecting constraints.
+
+CLASSES:
+
+CLASS: TaskScheduleRequest (Pydantic)
+- user_id: str
+- target_date: str
+- task_ids: List[str] (empty = schedule all pending)
+
+CLASS: TimeSlot (same as optimiser.py)
+
+CLASS: BaseScheduler (same as optimiser.py)
+
+CLASS: CalendarOptimiser(BaseScheduler)
+- inject_routines() - Same as Optimiser.inject_routines()
+
+CLASS: TaskScheduler(BaseScheduler)
+- interval_minutes = 5 (finer granularity than BaseScheduler)
+- Treats ALL events as blocking (no is_locked check)
+
+METHODS:
+
+_map_task_to_category(task) -> str
+- Infers category from task tags and energy_level
+- "high" energy → DEEP_WORK
+- "MEETING" tag → MEETING
+- Default → SHALLOW_WORK
+
+_find_best_slot_across_days(start_date, end_date, duration, category, 
+                            due_dt, scheduled_dates) -> TimeSlot | None
+- Searches up to 60 days for optimal slot
+- Applies spacing penalty to prevent bunching:
+  - Same day: -3000 points
+  - Next day: -800 points
+  - 2 days apart: -300 points
+
+schedule_tasks(start_date, fallback_end_date, pending_tasks) -> List[Dict]
+- THE MAIN TASK SCHEDULING ALGORITHM
+- Sorts tasks by priority, then due_date
+- For each task:
+  1. Calculate chunk size based on energy_level
+  2. Try scheduling largest chunk that fits
+  3. If blocked, halve chunk size and retry
+  4. Track scheduled dates for spacing penalty
+  5. Generate ghost events linked to task
+
+CHUNK SIZE LOGIC:
+- High energy: min 45, max 90 minutes
+- Medium energy: min 30, max 120 minutes
+- Low energy: min 15, max 60 minutes
+
+-------------------------------------------------------------------------------
+3.7 categorise.py - Event Categorisation (~260 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Three-tier hybrid system for classifying events into categories.
+
+FUNCTION: categorise_event(title, description, attendees_count, has_video_link)
+
+CATEGORIES:
+- DEEP_WORK: Coding, writing, studying, exams, thesis work
+- SHALLOW_WORK: Emails, admin, expenses, messages
+- MEETING: Syncs, standups, lectures, interviews
+- WORKOUT: Gym, running, yoga, sports
+- SOCIAL: Drinks, parties, dinners, birthdays
+- LEISURE: Cinema, gaming, spa, holidays
+- TRAVEL: Flights, trains, commute
+- MEAL: Breakfast, lunch, dinner
+
+TIER 1: METADATA HEURISTICS
+- If has_video_link OR attendees_count > 1 → MEETING
+
+TIER 2: KEYWORD DICTIONARY (~100 keywords)
+- Comprehensive mapping for both student and professional contexts
+- Substring matching against title_lower
+
+TIER 3: LLM FALLBACK (Gemini 2.0 Flash)
+- Structured prompt with category definitions
+- Temperature 0 for deterministic output
+- Validates response is in valid category list
+
+DEFAULT: MEETING (safe fallback)
+
+-------------------------------------------------------------------------------
+3.8 llm_parser.py - Constraint Parser (~120 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Translates natural language scheduling preferences into structured 
+JSON for the constraint satisfaction algorithm.
+
+CLASS: ConstraintParser
+
+FUNCTION: parse(user_text) -> dict | None
+
+OUTPUT STRUCTURE:
+{
+    "category": "DEEP_WORK | SHALLOW_WORK | MEETING | ...",
+    "type": "WINDOW | BUFFER | DURATION",
+    "params": { "start": 0-24, "end": 0-24, "minutes": int },
+    "is_hard": boolean,
+    "is_exclusive": boolean,
+    "is_routine": boolean,
+    "duration": int | null,
+    "weight": 1-10,
+    "reasoning": "string"
+}
+
+LOGIC RULES:
+- "No X after Y" → WINDOW {start: 0, end: Y}
+- "No X before Y" → WINDOW {start: Y, end: 24}
+- "I need a gap after X" → BUFFER {minutes: 15}
+- "Only X during Y" → is_exclusive: true
+- "Every day I do X for [duration]" → is_routine: true
+
+WEIGHTING:
+- Certain language ("Never", "Must", "Strictly") → is_hard: true, weight: 10
+- Suggestive language ("Prefer", "Ideally") → is_hard: false, weight: 1-9
+
+-------------------------------------------------------------------------------
+3.9 llm_duration.py - Duration Estimator (~80 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: AI-powered estimation of how long tasks will take.
+
+CLASS: DurationEstimator
+
+FUNCTION: estimate(title, description) -> int (minutes)
+
+PROMPT ENGINEERING:
+- Considers average human speed
+- Accounts for context switching
+- Rounds to nearest 15 minutes
+- Handles vague prompts (defaults to 60)
+
+EXAMPLE:
+- "Buy groceries" → 45 minutes
+- "Write quarterly report" → 180 minutes
+- "Reply to emails" → 30 minutes
+
+-------------------------------------------------------------------------------
+3.10 custom_exceptions.py - Structured Exception Classes (~50 lines)
+-------------------------------------------------------------------------------
+
+PURPOSE: Defines structured exceptions that carry rich payloads to the frontend.
+Rather than surfacing raw ValueErrors, these exceptions include the data needed
+for the frontend to render clarification UI components.
+
+CLASSES:
+
+CLASS: AmbiguityError(Exception)
+Raised when a title lookup finds more than one candidate.
+
+Constructor Parameters:
+- message: str - Human-readable error message
+- candidates: list - List of matching items (can be strings or enriched dicts)
+- query: str - The original search term
+- entity_key: str - Which entity array to override ("events", "tasks", "reminders")
+
+Usage in IntentEngine:
+```python
+raise AmbiguityError(
+    message    = f"I found multiple items matching '{query}'. Which one did you mean?",
+    candidates = enriched_candidates,  # [{id, title, start, end, location, ...}, ...]
+    query      = query,
+    entity_key = "events",
+)
+```
+
+Frontend Response Format:
+```json
+{
+  "type": "clarification_needed",
+  "clarification_type": "ambiguous_match",
+  "candidates": [...],
+  "query": "meeting",
+  "entity_key": "events"
+}
+```
+
+CLASS: SlotConflictError(Exception)
+Raised when CREATE_EVENT detects the requested slot is already booked.
+
+Constructor Parameters:
+- message: str - Human-readable error message
+- requested_start: str - ISO timestamp of requested start
+- requested_end: str - ISO timestamp of requested end
+- suggested_start: str | None - ISO timestamp of next available slot start
+- suggested_end: str | None - ISO timestamp of next available slot end
+- title: str | None - Event title being scheduled
+
+Usage in IntentEngine:
+```python
+raise SlotConflictError(
+    message         = "That slot is already taken.",
+    requested_start = start_iso,
+    requested_end   = end_iso,
+    suggested_start = next_start,
+    suggested_end   = next_end,
+    title           = event_title,
+)
+```
+
+Frontend Response Format:
+```json
+{
+  "type": "clarification_needed",
+  "clarification_type": "slot_conflict",
+  "requested_start": "2026-04-05T14:00:00Z",
+  "requested_end": "2026-04-05T15:00:00Z",
+  "suggested_start": "2026-04-05T15:30:00Z",
+  "suggested_end": "2026-04-05T16:30:00Z",
+  "title": "Team Meeting"
+}
+```
+
+================================================================================
+                    4. FRONTEND STRUCTURE (Next.js/React/Capacitor)
+================================================================================
+
+DIRECTORY: /frontend/src/
+
+STRUCTURE:
+├── app/                    # Next.js 14 App Router
+│   ├── page.tsx           # Main calendar dashboard (home)
+│   ├── layout.tsx         # Root layout with providers
+│   ├── globals.css        # Global styles (TailwindCSS)
+│   ├── ai/page.tsx        # AI chat interface (dedicated page)
+│   ├── tasks/page.tsx     # Task management view
+│   ├── reminders/page.tsx # Reminders view
+│   ├── settings/page.tsx  # User settings hub
+│   ├── analytics/page.tsx # Time Debt analytics dashboard
+│   ├── login/page.tsx     # Authentication page
+│   └── register/page.tsx  # User registration page
+│
+├── components/            # Reusable UI components
+│   ├── CustomCalendar.tsx       # Main calendar component
+│   ├── EventModal.tsx           # Create/edit event modal
+│   ├── TaskModal.tsx            # Create/edit task modal
+│   ├── RemindersModal.tsx       # Create/edit reminder modal
+│   ├── NavigationBar.tsx        # Bottom tab navigation
+│   ├── ConflictResolutionModal.tsx  # Sync drift & overlap handler
+│   ├── OptimisationPreferences.tsx  # Preference management
+│   ├── LinkedAccounts.tsx       # Google/Outlook account linking
+│   ├── CalendarSafety.tsx       # Undo/snapshot controls
+│   ├── AiEventModal.tsx         # AI-powered quick event creation
+│   └── OptimisationPrepModal.tsx    # Pre-optimisation confirmation
+│
+├── lib/                   # Utility functions & providers
+│   ├── AuthContext.tsx    # Firebase auth state provider
+│   ├── NotificationProvider.tsx # Reminders & geofencing
+│   ├── firebase.ts        # Firebase client config
+│   ├── fetchUtils.ts      # Network resilience (retry, timeout)
+│   ├── useSpeech.ts       # Voice input hook
+│   ├── places.ts          # Google Places API client
+│   └── proxy.ts           # API proxy (if needed)
+│
+├── types.ts              # TypeScript type definitions
+│
+└── ios/                   # Capacitor iOS native project
+    ├── App/               # Main iOS app target
+    └── capacitor-cordova-ios-plugins/
+
+CAPACITOR CONFIG (capacitor.config.ts):
+- appId: Custom bundle identifier
+- appName: Display name
+- webDir: "out" (Next.js static export)
+- Plugins: LocalNotifications, BackgroundGeolocation, NativeBiometric
+
+-------------------------------------------------------------------------------
+4.1 PAGES (App Router)
+-------------------------------------------------------------------------------
+
+4.1.1 page.tsx - Dashboard/Calendar (~531 lines)
+--------------------------------------------------
+
+PATH: /frontend/src/app/page.tsx
+ROUTE: / (Home)
+
+PURPOSE: Main calendar dashboard showing all events with sync, optimise, 
+and conflict resolution capabilities.
+
+STATE MANAGEMENT:
+- linkedAccounts: LinkedAccount[] - Connected Google/Outlook accounts
+- preferences: string[] - User scheduling preferences
+- events: CalendarEvent[] - All calendar events
+- isLoading, isSyncing, isOptimising: Loading states
+- conflictQueue: ConflictQueueItem[] - Pending sync conflicts
+- previewEvents: CalendarEvent[] - Optimisation preview
+- isPreviewMode: boolean - Toggle original vs optimised view
+
+KEY FEATURES:
+- Auto-runs background sweeper on load (Time Debt calculation)
+- Capacitor appStateChange listener for mobile wake-up refresh
+- Conflict queue system for sequential conflict resolution
+- Preview mode toggle for before/after optimisation comparison
+
+COMPONENTS USED:
+- CustomCalendar: Main calendar view
+- EventModal: Create/edit events
+- AiEventModal: AI quick event creation
+- ConflictResolutionModal: Sync conflict handler
+- OptimisationPrepModal: Pre-optimisation confirmation
+- NavigationBar: Bottom navigation
+
+API CALLS:
+- POST /api/analytics/sweep/{uid} - Background sweeper
+- POST /api/calendar/sync - Full calendar sync
+- POST /api/calendar/optimise/preview - Get optimisation suggestions
+- POST /api/calendar/optimise/commit - Apply optimisation
+- POST /api/calendar/resolve - Resolve conflicts
+
+4.1.2 ai/page.tsx - AI Chat Interface (~565 lines)
+--------------------------------------------------
+
+PATH: /frontend/src/app/ai/page.tsx
+ROUTE: /ai
+
+PURPOSE: Dedicated full-page chat interface for natural language interaction
+with the scheduling AI.
+
+STATE MANAGEMENT:
+- messages: Message[] - Chat history with status tracking
+- inputValue: string - Current input text
+- isLoading: boolean - Waiting for AI response
+
+MESSAGE INTERFACE:
+```typescript
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: "success" | "error" | "clarification_needed" | "loading";
+  timestamp: string;
+  clarification?: ClarificationPayload;  // For ambiguity/conflict UI
+  resolved?: boolean;  // True once user acted on clarification
+}
+```
+
+CLARIFICATION PAYLOAD:
+```typescript
+interface ClarificationPayload {
+  clarification_type: "ambiguous_match" | "slot_conflict";
+  // For ambiguous_match:
+  candidates?: string[];
+  query?: string;
+  entity_key?: string;
+  // For slot_conflict:
+  requested_start?: string;
+  requested_end?: string;
+  suggested_start?: string;
+  suggested_end?: string;
+  title?: string;
+  // For re-submission:
+  original_intent?: string;
+  original_entities?: Record<string, any>;
+  original_text?: string;
+}
+```
+
+KEY FEATURES:
+- Dark theme UI with gradient message bubbles
+- Typing indicator animation
+- Inline clarification UI for ambiguity resolution
+- One-tap slot conflict resolution
+- Chat history sent with each request for context
+- Voice input support (via useSpeech hook)
+
+CLARIFICATION HANDLERS:
+- onCandidateSelect: User picks from ambiguous options
+- onSlotConfirm: Accept suggested alternative slot
+- onSlotCancel: Dismiss conflict without action
+
+API CALLS:
+- POST /api/ai/parse - Main NLU endpoint with chat_history
+
+4.1.3 tasks/page.tsx - Task Management (~872 lines)
+--------------------------------------------------
+
+PATH: /frontend/src/app/tasks/page.tsx
+ROUTE: /tasks
+
+PURPOSE: Full task management interface with filtering, bulk actions,
+and AI-powered schedule preview.
+
+STATE MANAGEMENT:
+- tasks: Task[] - All user tasks
+- expandedTasks: Record<string, boolean> - Subtask visibility
+- selectedTaskIds: string[] - Multi-select for bulk actions
+- Filter states: sortBy, statusFilter, priorityFilter, energyFilter, tagFilter, dateFilter
+- Preview states: isPreviewMode, previewEvents, originalEvents
+
+KEY FEATURES:
+- Multi-select with bulk complete/missed/delete
+- Inline subtask toggle (checkbox directly updates Firestore)
+- Expandable task cards showing subtasks
+- Smart filtering by status, priority, energy level, tags, date
+- Task scheduling preview with calendar integration
+- Available tags computed from all tasks
+
+FILTER OPTIONS:
+- Sort: dueDate_asc, dueDate_desc, priority_desc, duration_asc, duration_desc
+- Status: all, pending, scheduled, completed, missed
+- Priority: all, 1, 2, 3, 4, 5
+- Energy: all, high, medium, low
+- Tags: Dynamic from task data
+- Date: Date picker
+
+BULK ACTIONS:
+- Mark Selected Complete
+- Mark Selected Missed
+- Delete Selected
+
+API CALLS:
+- GET /api/tasks/list/{uid} - Fetch all tasks
+- PUT /api/tasks/update - Update task
+- DELETE /api/tasks/delete - Delete task
+- POST /api/tasks/schedule/preview - Generate schedule preview
+- POST /api/tasks/schedule/commit - Commit task blocks
+
+4.1.4 reminders/page.tsx - Reminders Management (~494 lines)
+----------------------------------------------------------
+
+PATH: /frontend/src/app/reminders/page.tsx
+ROUTE: /reminders
+
+PURPOSE: Reminder management with grouping, filtering, and bulk actions.
+
+STATE MANAGEMENT:
+- reminders: Reminder[] - All user reminders
+- selectedReminderIds: string[] - Multi-select for bulk actions
+- Filter states: sortBy, statusFilter, typeFilter, priorityFilter, dateFilter
+
+REMINDER GROUPS (computed via useMemo):
+- high_priority: Priority="high" and not past
+- upcoming_time: Time-based pending reminders
+- location: Location-based reminders
+- past: Dismissed, delivered, or missed reminders
+
+KEY FEATURES:
+- Visual grouping by priority and type
+- Time-relative formatting ("Today, 3:00 PM", "2d ago")
+- Type badges: EVENT (blue), TASK (green), STANDALONE (grey)
+- Multi-select with bulk dismiss/delete
+- Click to edit reminder
+
+API CALLS:
+- GET /api/reminders/list/{uid} - Fetch all reminders
+- PUT /api/reminders/update - Update reminder
+- DELETE /api/reminders/delete - Delete reminder
+
+4.1.5 settings/page.tsx - Settings Hub (~226 lines)
+--------------------------------------------------
+
+PATH: /frontend/src/app/settings/page.tsx
+ROUTE: /settings
+
+PURPOSE: Settings hub with sub-pages for different configuration areas.
+
+SETTINGS GROUPS:
+```typescript
+const SETTINGS_GROUPS = [
+  {
+    id: "group-algorithm",
+    title: "Optimisation",
+    items: [{ id: "preferences", label: "Optimisation Preferences" }]
+  },
+  {
+    id: "group-calendar",
+    title: "Calendar",
+    items: [{ id: "calendar-safety", label: "Safety & Rollback" }]
+  },
+  {
+    id: "group-general",
+    title: "General",
+    items: [
+      { id: "linked-accounts", label: "Linked Accounts" },
+      { id: "notifications", label: "Notifications" }
+    ]
+  }
+];
+```
+
+KEY FEATURES:
+- Master-detail layout (sidebar + content)
+- Mobile: Full-screen detail view with back button
+- Desktop: Split pane with persistent sidebar
+- Logout button with Firebase signOut
+- RefreshKey state forces re-mount on app wake
+
+SUB-COMPONENTS:
+- OptimisationPreferences: Natural language preference input
+- LinkedAccounts: Google/Outlook account management
+- CalendarSafety: Snapshot list and undo functionality
+
+4.1.6 analytics/page.tsx - Time Debt Analytics (~625 lines)
+----------------------------------------------------------
+
+PATH: /frontend/src/app/analytics/page.tsx
+ROUTE: /analytics
+
+PURPOSE: Comprehensive analytics dashboard showing Time Debt metrics,
+risk forecasting, and productivity insights.
+
+DASHBOARD DATA INTERFACE:
+```typescript
+interface DashboardData {
+  core_ledgers: {
+    active_debt_mins: number;
+    sunk_debt_mins: number;
+    time_refunded_mins: number;
+  };
+  procrastination_profile: any[];
+  risk_forecast: {
+    average_risk_score: number;
+    danger_zone: any[];
+  };
+  energy_analytics: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  completion_funnel: {
+    task_completion_rate: number;
+    routine_adherence: number;
+    trend_data: number[];
+  };
+  advanced_metrics: {
+    priority_alignment: { high: number; medium: number; low: number };
+    peak_action_window: { peak_hour: number; distribution: number[] };
+    task_friction_hours: number;
+  };
+}
+```
+
+VISUALIZATIONS:
+- StatCard: Glass-morphic stat display with accent glow
+- RiskGauge: SVG arc gauge with colour-coded risk level
+- EnergyDonut: SVG donut chart for energy distribution
+- TrendBarChart: Completion rate trend over time
+- GlassCard: Container with backdrop blur effect
+
+KEY FEATURES:
+- Animated card reveals on load
+- Colour-coded risk levels: Green (<35%), Amber (35-65%), Red (>65%)
+- Peak productivity hour identification
+- Task friction tracking (time lost to context switching)
+- Time refunded tracking (Debt Relief from rescheduling)
+
+API CALLS:
+- GET /api/analytics/dashboard/{uid} - Full dashboard data
+
+4.1.7 login/page.tsx - Authentication (~219 lines)
+--------------------------------------------------
+
+PATH: /frontend/src/app/login/page.tsx
+ROUTE: /login
+
+PURPOSE: User authentication with email/password and biometric options.
+
+AUTHENTICATION METHODS:
+1. Email/Password (Firebase Auth)
+2. Passkey/WebAuthn (Desktop)
+3. Native Biometrics (iOS Face ID/Touch ID via Capgo)
+
+FLOW - MOBILE BIOMETRICS:
+1. User enters email
+2. NativeBiometric.isAvailable() check
+3. NativeBiometric.verifyIdentity() - physical scan
+4. POST /api/auth/mobile-biometric-login - get custom token
+5. signInWithCustomToken() - Firebase session
+
+FLOW - DESKTOP PASSKEYS:
+1. User enters email
+2. POST /api/auth/login/start - get WebAuthn challenge
+3. startAuthentication() - browser handles passkey
+4. POST /api/auth/login/verify - verify credential
+5. signInWithCustomToken() - Firebase session
+
+KEY FEATURES:
+- Capacitor platform detection for native vs web flows
+- Loading states with spinner animation
+- Error handling with user-friendly messages
+- Link to registration page
+
+4.1.8 register/page.tsx - User Registration
+------------------------------------------
+
+PATH: /frontend/src/app/register/page.tsx
+ROUTE: /register
+
+PURPOSE: New user registration with optional biometric setup.
+
+REGISTRATION STEPS:
+1. Email/password signup (Firebase createUserWithEmailAndPassword)
+2. Optional biometric credential linking (Face ID/Passkey)
+
+KEY FEATURES:
+- Two-step flow: Account creation → Biometric setup
+- Password validation (minimum 6 characters)
+- Skip option for biometric setup
+- Platform-specific biometric handling
+
+-------------------------------------------------------------------------------
+4.2 COMPONENTS
+-------------------------------------------------------------------------------
+
+4.2.1 CustomCalendar.tsx - Interactive Calendar View (~631 lines)
+----------------------------------------------------------------
+
+PURPOSE: Multi-view calendar component with day/week/month views,
+touch gestures, and event overlap handling.
+
+PROPS:
+```typescript
+interface CustomCalendarProps {
+  events: CalendarEvent[];
+  onEventClick: (event: CalendarEvent, instanceDate?: Date, overlaps?: CalendarEvent[]) => void;
+  onSync: () => void;
+  isSyncing: boolean;
+  onOptimise: (date: Date) => void;
+  isPreviewMode?: boolean;
+}
+```
+
+VIEWS:
+- Day: Single day timeline (8am-10pm)
+- Week: 7-day timeline or stacked view
+- Month: Traditional calendar grid
+
+VIEW LAYOUTS (Week):
+- Timeline: Hour-by-hour vertical layout
+- Stacked: Compact list view
+
+EVENT RENDERING:
+- isEventOnDay(): Handles recurrence patterns (daily, weekly, monthly, custom)
+- getRenderTimeForDay(): Calculates display time for recurring events
+- groupOverlappingEvents(): Column-based overlap algorithm
+- getCategoryColors(): Colour scheme per event category
+- getStatusClasses(): Visual treatment for completed/missed/conflict states
+
+GESTURE HANDLING:
+- Single-finger swipe: Navigate between periods
+- Two-finger pinch: Zoom between view levels
+- Threshold: 50px for swipe, 60px for pinch
+
+RECURRENCE SUPPORT:
+- exception_dates: Array of YYYY-MM-DD strings to skip
+- recurrence_days: Array of day numbers for custom recurrence
+- proposed_start/end: Display optimised time if available
+
+COLOUR CATEGORIES:
+- DEEP_WORK: Violet
+- SHALLOW_WORK: Sky blue
+- MEETING: Blue
+- WORKOUT: Orange
+- SOCIAL: Pink
+- LEISURE: Emerald
+- TRAVEL: Slate
+- MEAL: Amber
+
+4.2.2 EventModal.tsx - Event CRUD Modal (~819 lines)
+----------------------------------------------------
+
+PURPOSE: Full-featured modal for creating and editing calendar events
+with travel time, recurrence, attachments, and reminder linking.
+
+PROPS:
+```typescript
+interface EventModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  linkedAccounts: any[];
+  onSaveSuccess: () => void;
+  userId: string;
+  editEvent?: any | null;
+  instanceDate?: Date;  // For editing single recurrence instance
+}
+```
+
+FORM FIELDS:
+- Basic: title, location, meeting_link, description
+- Timing: startDate, startTime, endDate, endTime
+- Recurrence: recurrence, selectedDays (for custom)
+- Travel: travelTime, travelOrigin, travelMode
+- Category: category (DEEP_WORK, MEETING, etc.)
+- Flags: isLocked, completionStatus, isPerishable
+- Attachments: File upload to Firebase Storage
+
+TRAVEL TIME CALCULATOR:
+- Google Places autocomplete for origin
+- POST /api/location/travel-time for route calculation
+- Modes: driving, transit, walking, cycling
+
+RECURRENCE OPTIONS:
+- none, daily, weekly, monthly, custom
+- Custom: Select specific weekdays (M-T-W-T-F-S-S)
+
+UPDATE MODES (for recurring events):
+- 'all': Update entire series
+- 'single': Update only this instance (creates exception)
+
+REMINDER LINKING:
+- existingReminders: Fetch all user reminders
+- queuedLinkIds: Reminders to link on save
+- pendingNewReminders: New reminders to create on save
+
+TELEMETRY FIELDS:
+- completionStatus: pending | completed | missed
+- isPerishable: Cannot be rescheduled (e.g., concert ticket)
+- snoozeCount: Read-only display of reschedule count
+
+4.2.3 TaskModal.tsx - Task CRUD Modal (~843 lines)
+--------------------------------------------------
+
+PURPOSE: Comprehensive task creation/editing with subtasks, AI duration
+estimation, and reminder linking.
+
+PROPS:
+```typescript
+interface TaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  userId: string;
+  editTask?: Task | null;
+  onSaveSuccess: () => void;
+}
+```
+
+TASK INTERFACE:
+```typescript
+interface Task {
+  id?: string;
+  user_id?: string;
+  title: string;
+  description?: string;
+  sub_tasks: SubTask[];
+  estimated_duration?: number | null;
+  start_date?: string | null;
+  due_date?: string | null;
+  status: string;
+  priority: number;  // 1-5
+  energy_level: string;  // high | medium | low
+  tags: string[];
+  linked_event_ids?: string[];
+  linked_reminder_ids?: string[];
+  is_locked?: boolean;
+  // Telemetry:
+  snooze_count?: number;
+  completed_at?: string | null;
+  debt_applied?: boolean;
+  is_perishable?: boolean;
+}
+```
+
+DURATION MODES:
+- flexible: No fixed duration (null)
+- preset: Quick selection (15, 30, 45, 60, 90, 120 mins)
+- custom: Manual input
+
+AI DURATION ESTIMATION:
+- Button triggers POST /api/tasks/estimate-duration
+- Uses LLM to estimate based on title and description
+
+SUBTASK MANAGEMENT:
+- Add new subtask with inline input
+- Toggle completion directly
+- Delete individual subtasks
+
+PRIORITY LEVELS:
+- 1: Low (grey)
+- 2: Below Normal (slate)
+- 3: Normal (indigo)
+- 4: High (amber)
+- 5: Urgent (red)
+
+ENERGY LEVELS:
+- low: Quick tasks, minimal focus
+- medium: Standard tasks
+- high: Deep work, requires focus
+
+TAG MANAGEMENT:
+- Inline tag input
+- Comma-separated or Enter to add
+- Click to remove
+
+4.2.4 RemindersModal.tsx - Reminder CRUD Modal
+----------------------------------------------
+
+PURPOSE: Create and edit reminders with time-based or location-based triggers.
+
+REMINDER INTERFACE:
+```typescript
+interface Reminder {
+  id?: string;
+  user_id?: string;
+  title: string;
+  body?: string | null;
+  type: "event" | "task" | "standalone";
+  reference_id?: string | null;
+  trigger_type: "time" | "location" | "time_and_location";
+  trigger_time?: string | null;
+  location_data?: LocationData | null;
+  priority: "standard" | "high";
+  repeat: "none" | "daily" | "weekly" | "monthly" | "custom";
+  custom_repeat_days?: string[];
+  status: "pending" | "delivered" | "dismissed" | "missed";
+}
+```
+
+LOCATION DATA:
+```typescript
+interface LocationData {
+  lat: number;
+  lng: number;
+  radius: number;  // meters
+  trigger_on: "entry" | "exit";
+}
+```
+
+TRIGGER TYPES:
+- time: Fire at specific datetime
+- location: Fire on geofence entry/exit
+- time_and_location: Both conditions must be met
+
+LOCATION SEARCH:
+- Google Places autocomplete
+- Fetch coordinates via /api/places/details
+- Configurable radius (default 100m)
+- Entry or exit trigger
+
+4.2.5 NavigationBar.tsx - Bottom Navigation
+-------------------------------------------
+
+PURPOSE: Persistent bottom navigation bar with five main destinations.
+
+NAVIGATION ITEMS:
+- / (Home/Calendar): Calendar icon
+- /tasks: Checkmark icon
+- /ai: Centered AI button (prominent)
+- /reminders: Bell icon with toast badge
+- /settings: Gear icon
+
+KEY FEATURES:
+- Active state highlighting with scale effect
+- AI button is centered and elevated
+- Toast notification badge on reminders
+- Safe area padding for iOS
+
+4.2.6 ConflictResolutionModal.tsx - Sync Conflict Handler (~231 lines)
+--------------------------------------------------------------------
+
+PURPOSE: Modal for resolving calendar sync drifts and time overlaps.
+
+PROPS:
+```typescript
+interface ConflictResolutionModalProps {
+  isOpen: boolean;
+  conflictType: "sync" | "overlap";
+  event: CalendarEvent | null;
+  overlappingEvents?: CalendarEvent[];
+  conflictCount: number;
+  currentIndex: number;
+  onAcceptExternal: (eventId: string) => void;
+  onKeepProposed: (eventId: string) => void;
+  onRevertToOriginal: (eventId: string) => void;
+  onManualEdit: (event: CalendarEvent) => void;
+  onDeleteEvent?: (eventId: string) => void;
+  onDismiss: () => void;
+}
+```
+
+CONFLICT TYPES:
+
+SYNC DRIFT:
+- External calendar changed (Google/Outlook)
+- Shows: New external time, Previous baseline, Current AI plan
+- Actions: Accept External, Keep AI Plan, Revert to Original
+
+OVERLAP (Double Booking):
+- Two events compete for same slot
+- Shows: Both events with times
+- Actions: Edit Time, Delete Event
+
+VISUAL INDICATORS:
+- Sync drift: Amber header
+- Overlap: Red header
+- Conflict counter: "Conflict 1 of 3"
+
+4.2.7 OptimisationPreferences.tsx - Preference Management (~365 lines)
+--------------------------------------------------------------------
+
+PURPOSE: Natural language input for scheduling preferences with
+voice input support and preference list management.
+
+PROPS:
+```typescript
+interface OptimisationPreferencesProps {
+  userId: string;
+  onBack: () => void;
+}
+```
+
+PREFERENCE STRUCTURE:
+```typescript
+interface Preference {
+  id: string;
+  raw_input: string;         // Original user text
+  category: string;          // DEEP_WORK, MEETING, etc.
+  rule_type: string;         // WINDOW, BUFFER, DURATION
+  is_hard_constraint: boolean;
+  is_hard: boolean;          // Alias
+  reasoning: string;         // LLM explanation
+  type: string;              // Constraint type
+  weight: number;            // 1-10
+}
+```
+
+KEY FEATURES:
+- Natural language text input
+- Voice input via Web Speech API
+- LLM parsing via /api/preferences/parse
+- Visual list of all preferences
+- Delete individual preferences
+- Hard vs soft constraint indicator
+
+VOICE INPUT:
+- SpeechRecognition API (webkit prefix)
+- Continuous listening mode
+- Interim results for live transcription
+- Fallback for unsupported browsers
+
+4.2.8 LinkedAccounts.tsx - External Calendar Linking
+---------------------------------------------------
+
+PURPOSE: Connect and manage Google Calendar and Microsoft Outlook accounts.
+
+KEY FEATURES:
+- List all connected accounts with email
+- Add new Google or Outlook account (OAuth flow)
+- Remove connected account
+- Capacitor URL listener for OAuth callback
+
+OAUTH FLOW:
+1. Click "Add Google/Outlook Account"
+2. Opens OAuth URL (popup on web, in-app browser on mobile)
+3. User authenticates with provider
+4. Callback stores refresh_token in Firestore
+5. UI updates with new account
+
+4.2.9 CalendarSafety.tsx - Rollback/Undo Controls
+-------------------------------------------------
+
+PURPOSE: View calendar snapshots and restore previous states.
+
+KEY FEATURES:
+- List all snapshots with timestamps
+- Preview snapshot contents
+- One-click restore to previous state
+- Automatic snapshot before optimisation
+
+4.2.10 AiEventModal.tsx - AI Event Creation
+-------------------------------------------
+
+PURPOSE: Quick event creation using natural language.
+
+KEY FEATURES:
+- Single text input for event description
+- Parses via /api/ai/parse
+- Auto-fills EventModal with extracted data
+
+4.2.11 OptimisationPrepModal.tsx - Pre-Optimisation Confirmation
+----------------------------------------------------------------
+
+PURPOSE: Confirmation dialog before running calendar optimisation.
+
+KEY FEATURES:
+- Date selector for optimisation target
+- Warning about changes
+- Snapshot creation confirmation
+- Cancel or proceed options
+
+-------------------------------------------------------------------------------
+4.3 LIBRARY/UTILITIES
+-------------------------------------------------------------------------------
+
+4.3.1 AuthContext.tsx - Firebase Authentication Provider
+--------------------------------------------------------
+
+PURPOSE: React context providing authentication state throughout the app.
+
+CONTEXT VALUE:
+```typescript
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+}
+```
+
+KEY FEATURES:
+- onAuthStateChanged listener
+- 3-second timeout failsafe if Firebase hangs
+- Auto-redirect to /login if unauthenticated
+- Auto-redirect to / if authenticated on login page
+- Loading screen during auth check
+
+4.3.2 NotificationProvider.tsx - Reminder & Geofence Engine (~395 lines)
+----------------------------------------------------------------------
+
+PURPOSE: Global provider managing reminder synchronisation, native
+notifications, and background geofencing.
+
+CONTEXT VALUE:
+```typescript
+interface NotificationContextType {
+  pendingReminders: Reminder[];
+  activeToasts: ToastNotification[];
+  dismissToast: (toastId: string, reminderId: string) => void;
+}
+```
+
+CAPABILITIES:
+
+1. FIRESTORE REAL-TIME SYNC
+   - onSnapshot listener on reminders collection
+   - Filters for status === "pending"
+   - Updates pendingReminders state
+
+2. NATIVE IOS NOTIFICATIONS
+   - Capacitor LocalNotifications plugin
+   - Schedules notifications for time-based reminders
+   - Cancels all pending, then re-schedules from pendingReminders
+   - Uses hash of reminder ID for numeric notification ID
+
+3. BACKGROUND GEOFENCING (Capgo plugin)
+   - BackgroundGeolocation.start() with single watcher
+   - Calculates distance to each location reminder
+   - Triggers notification on entry/exit based on trigger_on
+   - Stops tracking when no location reminders exist
+
+DISTANCE CALCULATION:
+- Haversine formula for lat/lng distance
+- Checks against reminder's configured radius
+
+4.3.3 firebase.ts - Firebase Client Configuration
+-------------------------------------------------
+
+PURPOSE: Initialise Firebase app, auth, Firestore, and Storage.
+
+EXPORTS:
+- app: FirebaseApp instance
+- auth: Auth instance (with indexedDBLocalPersistence for Capacitor)
+- db: Firestore instance
+- storage: Firebase Storage instance
+
+CRITICAL FIX:
+- Uses initializeAuth with indexedDBLocalPersistence
+- Avoids web popup resolvers that break on Capacitor
+
+4.3.4 fetchUtils.ts - Network Resilience Wrapper
+------------------------------------------------
+
+PURPOSE: Robust fetch wrapper with timeout and retry logic.
+
+FUNCTION: fetchWithRetry(url, options)
+
+OPTIONS:
+```typescript
+interface FetchOptions extends RequestInit {
+  timeoutMs?: number;  // Default 8000
+  retries?: number;    // Default 2
+}
+```
+
+BEHAVIOUR:
+- AbortController for timeout enforcement
+- Retries on 500/502 errors (server issues)
+- Exponential backoff: 1s, then 2s
+- Throws after all retries exhausted
+
+4.3.5 useSpeech.ts - Voice Input Hook
+-------------------------------------
+
+PURPOSE: Cross-platform voice input for text fields.
+
+RETURNS:
+```typescript
+{
+  isListening: boolean;
+  transcript: string;
+  startListening: () => Promise<void>;
+  stopListening: () => Promise<void>;
+  setTranscript: (text: string) => void;
+}
+```
+
+PLATFORMS:
+- Native iOS: Capacitor SpeechRecognition plugin
+- Web: Web Speech API (SpeechRecognition/webkitSpeechRecognition)
+
+4.3.6 places.ts - Google Places API Client
+------------------------------------------
+
+PURPOSE: Google Places autocomplete for location search.
+
+FUNCTION: fetchLocationPredictions(query) -> Promise<Prediction[]>
+
+4.3.7 proxy.ts - API Proxy Configuration
+----------------------------------------
+
+PURPOSE: Next.js API route for proxying requests to Python backend.
+
+-------------------------------------------------------------------------------
+4.4 TYPES
+-------------------------------------------------------------------------------
+
+4.4.1 types.ts - TypeScript Type Definitions
+--------------------------------------------
+
+EXPORTS:
+
+LinkedAccount:
+```typescript
+interface LinkedAccount {
+  provider: string;
+  email: string;
+  refresh_token?: string;
+}
+```
+
+CalendarEvent:
+```typescript
+interface CalendarEvent {
+  id: string;
+  title: string;
+  
+  // Active Timestamps
+  start: string;
+  end: string;
+  
+  // Baseline & Sync
+  original_start: string;
+  original_end: string;
+  proposed_start: string | null;
+  proposed_end: string | null;
+  previous_start: string | null;
+  previous_end: string | null;
+
+  // Metadata
+  provider: "google" | "outlook" | "custom";
+  email: string;
+  location: string | null;
+  meeting_link: string | null;
+  description: string | null;
+  status: "synced" | "drifted" | "conflict" | "resolved";
+  
+  // AI & Logic Constraints
+  is_locked: boolean;
+  has_drifted: boolean;
+  requires_review: boolean;
+  sync_action_required?: "none" | "push_to_provider" | "pull_from_provider";
+
+  // Travel Tracking
+  travel_time: number;
+  travel_origin: string | null;
+  travel_mode: "driving" | "transit" | "walking" | "cycling";
+
+  // Recurrence & Exceptions
+  recurrence: "none" | "daily" | "weekly" | "monthly" | "custom";
+  recurrence_days: string[];
+  exception_dates: string[];
+  parent_event_id?: string;
+
+  // Resources
+  attachments: string[];
+  category?: string;
+
+  // Telemetry & Habit Fields
+  completion_status?: "pending" | "completed" | "missed";
+  snooze_count?: number;
+  completed_at?: string | null;
+  debt_applied?: boolean;
+  is_perishable?: boolean;
+}
+```
+
+Task Interface:
+```typescript
+interface Task {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  sub_tasks: SubTask[];
+  estimated_duration?: number | null;
+  start_date?: string | null;
+  due_date?: string | null;
+  status: "pending" | "scheduled" | "completed" | "missed";
+  priority: number;  // 1-5
+  energy_level: "high" | "medium" | "low";
+  tags: string[];
+  linked_event_ids: string[];
+  linked_reminder_ids: string[];
+  is_locked: boolean;
+  // Telemetry:
+  snooze_count: number;
+  completed_at?: string | null;
+  debt_applied: boolean;
+  is_perishable: boolean;
+}
+```
+
+Reminder Interface:
+```typescript
+interface Reminder {
+  id: string;
+  user_id: string;
+  title: string;
+  body?: string | null;
+  type: "event" | "task" | "standalone";
+  reference_id?: string | null;
+  trigger_type: "time" | "location" | "time_and_location";
+  trigger_time?: string | null;
+  location_data?: LocationData | null;
+  priority: "standard" | "high";
+  repeat: "none" | "daily" | "weekly" | "monthly" | "custom";
+  custom_repeat_days?: string[];
+  status: "pending" | "delivered" | "dismissed" | "missed";
+}
+```
+
+================================================================================
+                              5. AI/ML MODELS
+================================================================================
+
+LOCATION: /src/modernbert_intent_model/ and /src/modernbert_ner_model/
+
+-------------------------------------------------------------------------------
+5.1 Intent Classification Model
+-------------------------------------------------------------------------------
+
+ARCHITECTURE: ModernBERT (fine-tuned from answerdotai/ModernBERT-base)
+TYPE: Multi-label classification with 16 output classes
+CHECKPOINT: checkpoint-2160
+
+CONFIGURATION:
+- problem_type: "multi_label_classification"
+- num_labels: 16
+- hidden_dropout_prob: 0.1
+- attention_probs_dropout_prob: 0.1
+- max_position_embeddings: 8192
+
+TRAINING PARAMS:
+- Learning rate: 2e-5
+- Batch size: 16
+- Epochs: 10
+- Weight decay: 0.01
+- Warmup ratio: 0.1
+- FP16: Enabled (mixed precision)
+- Metric: F1 micro
+
+INFERENCE:
+- Sigmoid activation on logits
+- Threshold: 0.85 for positive classification
+- Multi-label: Multiple intents can be active simultaneously
+
+INTENT LABELS (16 classes):
+```python
+INTENT_LABELS = [
+    "CREATE_EVENT",      # Schedule a new event
+    "CREATE_TASK",       # Add a new task
+    "EDIT_EVENT",        # Modify existing event
+    "EDIT_TASK",         # Modify existing task
+    "DELETE_EVENT",      # Remove an event
+    "DELETE_TASK",       # Remove a task
+    "SET_REMINDER",      # Create a reminder
+    "QUERY_SCHEDULE",    # Ask about schedule
+    "OPTIMISE",          # Run optimisation
+    "MOVE_EVENTS",       # Bulk rescheduling
+    "LIST_TASKS",        # Show task list
+    "LIST_EVENTS",       # Show event list
+    "COMPLETE_TASK",     # Mark task done
+    "COMPLETE_EVENT",    # Mark event done
+    "SET_PREFERENCE",    # Add constraint
+    "GENERAL_QUESTION",  # Conversational/FAQ
+]
+```
+
+-------------------------------------------------------------------------------
+5.2 Named Entity Recognition (NER) Model
+-------------------------------------------------------------------------------
+
+ARCHITECTURE: ModernBERT (fine-tuned from answerdotai/ModernBERT-base)
+TYPE: Token classification (BIO tagging scheme)
+CHECKPOINT: checkpoint-3987
+
+CONFIGURATION:
+- model_type: "bert" (compatMode)
+- aggregation_strategy: "simple" (merges adjacent same-type tokens)
+
+ENTITY LABELS (23 BIO tags):
+```python
+ENTITY_LABELS = [
+    "O",                  # Outside any entity
+    "B-DATE", "I-DATE",   # Date expressions
+    "B-TIME", "I-TIME",   # Time expressions
+    "B-DURATION", "I-DURATION",  # Duration spans
+    "B-EVENT", "I-EVENT", # Event titles
+    "B-TASK", "I-TASK",   # Task titles
+    "B-PERSON", "I-PERSON",  # People names
+    "B-LOCATION", "I-LOCATION",  # Place names
+    "B-RECURRENCE", "I-RECURRENCE",  # Recurrence patterns
+    "B-REMINDER", "I-REMINDER",  # Reminder triggers
+    "B-PREFERENCE", "I-PREFERENCE",  # User preferences
+    "B-CONDITION", "I-CONDITION",  # Conditional clauses
+]
+```
+
+ENTITY EXAMPLES:
+- DATE: "tomorrow", "next Friday", "March 15th", "in 2 weeks"
+- TIME: "3pm", "noon", "at 9:00", "morning", "evening"
+- DURATION: "2 hours", "30 minutes", "for an hour"
+- EVENT: "meeting", "dentist", "gym", "lunch"
+- TASK: "homework", "project", "report", "groceries"
+- PERSON: "John", "Sarah", "the team", "Dr. Smith"
+- LOCATION: "office", "Starbucks", "home", "conference room A"
+- RECURRENCE: "daily", "every Monday", "weekly", "every 2 weeks"
+- REMINDER: "remind me", "alert me", "notify me"
+- PREFERENCE: "I prefer", "never schedule", "always block"
+- CONDITION: "if it rains", "unless cancelled"
+
+-------------------------------------------------------------------------------
+5.3 Centroid-Based OOD Detection
+-------------------------------------------------------------------------------
+
+FILE: /src/intent_centroids.npy (256 KB)
+
+PURPOSE: Out-of-distribution detection using embedding similarity.
+
+GENERATION PROCESS:
+1. For each intent class, collect 100+ representative training examples
+2. Pass each example through ModernBERT encoder
+3. Extract [CLS] token embedding (768 dimensions)
+4. Compute mean embedding per class → centroid
+
+STORAGE FORMAT:
+- NumPy array shape: (16, 768)
+- Row i = centroid for INTENT_LABELS[i]
+
+USAGE IN router.py:
+```python
+# Extract query embedding
+query_embedding = self.model.encode(text)  # [768]
+
+# Compute cosine similarity to each centroid
+similarities = cosine_similarity(
+    query_embedding.reshape(1, -1),
+    self.intent_centroids
+)[0]
+
+# Best match intent
+best_intent_idx = np.argmax(similarities)
+best_similarity = similarities[best_intent_idx]
+
+# OOD threshold check
+if best_similarity < 0.75:
+    return "OOD"  # Out of distribution
+```
+
+-------------------------------------------------------------------------------
+5.4 Risk Prediction Model (Time Debt)
+-------------------------------------------------------------------------------
+
+FILES:
+- risk_prediction_model.pkl (trained scikit-learn model)
+- risk_prediction_model_meta.json (model metadata)
+- risk_prediction_model_shap_explainer.pkl (SHAP explainer for interpretability)
+- risk_prediction_model_shap_summary.json (feature importance summary)
+
+PURPOSE: Predict probability that an event/task will be missed.
+
+INPUT FEATURES:
+- snooze_count: Number of times rescheduled
+- estimated_duration: Task duration in minutes
+- days_until_due: Time remaining before deadline
+- priority: 1-5 priority level
+- energy_level_encoded: 0 (low), 1 (medium), 2 (high)
+- is_perishable: 0 or 1
+
+OUTPUT: Float [0, 1] probability of being missed
+
+USAGE:
+- Analytics dashboard risk forecasting
+- Task prioritisation in optimisation
+- Danger zone identification
+
+-------------------------------------------------------------------------------
+5.5 LLM Integration (Gemini 2.0 Flash)
+-------------------------------------------------------------------------------
+
+MODEL: gemini-2.0-flash (Google AI)
+LIBRARY: google-generativeai
+
+USE CASES:
+1. LLM Fallback (when local models insufficient)
+2. Duration estimation (/api/tasks/estimate-duration)
+3. Preference parsing (/api/preferences/parse)
+4. Category classification (categorise.py)
+5. General conversation (GENERAL_QUESTION intent)
+
+CONFIGURATION:
+```python
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model = genai.GenerativeModel("gemini-2.0-flash")
+```
+
+SAFETY SETTINGS:
+- HARASSMENT: BLOCK_NONE
+- HATE: BLOCK_NONE
+- SEXUAL: BLOCK_NONE
+- DANGEROUS: BLOCK_NONE
+
+GENERATION CONFIG:
+- temperature: 0.7 (default, varies by use case)
+- max_output_tokens: 2048
+
+-------------------------------------------------------------------------------
+5.6 Training Infrastructure
+-------------------------------------------------------------------------------
+
+LOCATION: /src/___ai_gen/ and /src/ai/
+
+FILES:
+├── intent_dataset_generator.py  # Synthetic training data
+├── intent_train.py              # Intent model training
+├── intent_test.py               # Intent model evaluation
+├── intent_validation_generator.py  # Validation set
+├── ner_dataset_generator.py     # NER training data
+├── ner_train.py                 # NER model training
+├── ner_test.py                  # NER model evaluation
+├── ner_validation_generator.py  # NER validation set
+
+SYNTHETIC DATA APPROACH:
+- Uses LLM to generate diverse phrasings
+- Manually annotated seed examples
+- Template-based expansion with variation
+- Domain-specific vocabulary injection
+
+TRAINING HARDWARE:
+- Designed for single GPU (CUDA)
+- FP16 mixed precision for memory efficiency
+- Gradient accumulation for larger effective batch
+
+================================================================================
+                       6. DATA FLOW & INTERACTIONS
+================================================================================
+
+-------------------------------------------------------------------------------
+6.1 AI Parse Flow (Main Request Path)
+-------------------------------------------------------------------------------
+
+USER INPUT: "Schedule lunch with Sarah tomorrow at 1pm"
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POST /api/ai/parse                                                          │
+│   Body: { text, user_id, context, chat_history }                           │
+│   1. Build context string (upcoming events, pending tasks)                  │
+│   2. Call routing_engine.evaluate(text, context, chat_history)             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ MultiSignalRouter.evaluate()                                                │
+│   Signal 1: Check GENERAL_QUESTION keywords ✗                              │
+│   Signal 2: Compute complexity score = 0 (no compound clauses) ✓           │
+│   Signal 3: Embedding similarity to centroids = 0.89 (CREATE_EVENT) ✓      │
+│   Signal 4: NLU process() →                                                │
+│             intents: ["CREATE_EVENT"], confidence: 0.92                    │
+│             entities: {                                                     │
+│               events: ["lunch"],                                           │
+│               people: ["Sarah"],                                           │
+│               dates: ["tomorrow"],                                         │
+│               times: ["1pm"]                                               │
+│             }                                                              │
+│   Signal 5: Clean entities (remove stopwords, validate) ✓                  │
+│   Signal 6: Validate intent (CREATE_EVENT needs event + date/time) ✓       │
+│   → Returns: {source: "Local_ModernBERT", intents: [...], entities: {...}} │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ routing_engine.dispatch(result, user_id, intent_handlers)                   │
+│   → Calls IntentExecutionEngine.handle_create_event(entities, user_id)     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ handle_create_event()                                                       │
+│   1. resolve_title_flexible("lunch", [], user_id, "events")               │
+│      → Returns "lunch" (new event, not a match)                            │
+│   2. normalise_time("tomorrow", "1pm", now)                                │
+│      → Returns ("2026-04-02T13:00:00", "2026-04-02T14:00:00")              │
+│   3. check_slot_availability(start, end, user_id)                          │
+│      → Returns True (slot is free)                                         │
+│   4. categorise_event("lunch") → "MEAL"                                    │
+│   5. Build event document with all fields                                  │
+│   6. Write to Firestore: users/{uid}/raw_events/{doc_id}                   │
+│   7. Return: {                                                             │
+│        status: "success",                                                  │
+│        message: "I have scheduled 'lunch' for Wednesday at 1:00 PM"        │
+│      }                                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                     RESPONSE TO FRONTEND
+                {type: "action", results: [...]}
+
+-------------------------------------------------------------------------------
+6.2 Calendar Sync Flow
+-------------------------------------------------------------------------------
+
+TRIGGER: User clicks "Sync" button OR app wake-up
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POST /api/calendar/sync                                                     │
+│   Body: { user_id }                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ For each linked account (Google/Outlook):                                   │
+│   1. Refresh access token using stored refresh_token                       │
+│   2. Fetch events from provider API (next 30 days)                         │
+│   3. Compare with Firestore baseline (original_start/end)                  │
+│   4. For each event:                                                       │
+│      - If external changed but local unchanged → Mark "drifted"            │
+│      - If local optimised but external unchanged → Keep optimised          │
+│      - If both changed → Mark "conflict" for resolution                    │
+│   5. Update Firestore documents with new sync status                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Response:                                                                   │
+│   {                                                                         │
+│     events: [...all events...],                                            │
+│     drifted_count: N,                                                      │
+│     conflict_count: M                                                      │
+│   }                                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+-------------------------------------------------------------------------------
+6.3 Optimisation Flow
+-------------------------------------------------------------------------------
+
+TRIGGER: User clicks "Optimise" button
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POST /api/calendar/optimise/preview                                         │
+│   Body: { user_id, date }                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Optimiser.generate_preview()                                                │
+│   1. Create snapshot of current state                                      │
+│   2. Fetch user preferences (hard/soft constraints)                        │
+│   3. Load all unlocked events for date range                               │
+│   4. For each constraint type:                                             │
+│      - WINDOW: Enforce time boundaries                                     │
+│      - BUFFER: Add gaps between events                                     │
+│      - DURATION: Respect min/max durations                                 │
+│      - EXCLUSIVE: Reserve slots for specific categories                    │
+│   5. Apply constraint satisfaction solver                                  │
+│   6. Generate proposed_start/proposed_end for each event                   │
+│   7. Return preview (without committing)                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                     FRONTEND SHOWS PREVIEW
+               (Toggle between current vs optimised)
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POST /api/calendar/optimise/commit                                          │
+│   Body: { user_id, snapshot_id }                                           │
+│   1. Apply proposed times to actual start/end fields                       │
+│   2. Update Firestore documents                                            │
+│   3. Push changes to Google/Outlook (if linked)                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+-------------------------------------------------------------------------------
+6.4 Time Debt Background Sweep
+-------------------------------------------------------------------------------
+
+TRIGGER: App load OR scheduled cron
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ POST /api/analytics/sweep/{uid}                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Sweeper Logic:                                                              │
+│   1. Query all events/tasks with completion_status == "pending"            │
+│   2. Filter for items where end < now (past due)                           │
+│   3. For each past-due item:                                               │
+│      - If debt_applied == False:                                           │
+│        a. If is_perishable: Add to sunk_debt (can't recover)              │
+│        b. Else: Add to active_debt (can reschedule)                        │
+│        c. Set debt_applied = True                                          │
+│        d. Update completion_status = "missed"                              │
+│   4. Aggregate totals into user's debt_ledger document                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+                           7. KEY FEATURES
+================================================================================
+
+A) INTELLIGENT ROUTING (Escalation Pattern)
+   - Fast local inference for simple requests (<100ms)
+   - Seamless LLM escalation for complex requests
+   - User never sees routing decision
+   - Chat history awareness for context continuity
+
+B) MULTI-LABEL INTENT CLASSIFICATION
+   - Single input can trigger multiple actions
+   - "Schedule gym and remind me to bring shoes"
+     → CREATE_EVENT + SET_REMINDER
+   - Parallel execution of independent intents
+
+C) TIME DEBT GAMIFICATION
+   - Tracks missed events/tasks quantitatively
+   - Distinguishes:
+     - Active Debt: Can be recovered by rescheduling
+     - Sunk Debt: Perishable items, permanently lost
+     - Refunded: Time recovered through rescheduling
+   - Procrastination profiling per user
+
+D) CONSTRAINT-BASED SCHEDULING
+   - Hard constraints (must be respected)
+   - Soft constraints (weighted preferences, can be violated)
+   - Exclusive windows ("only deep work from 9-12")
+   - Buffer requirements ("15 min after meetings")
+   - Category-aware rules
+
+E) INTELLIGENT TASK TIME-BLOCKING
+   - Automatic chunking based on energy level
+   - Spacing optimization across days
+   - Priority-based scheduling order
+   - Preview before commit
+
+F) CALENDAR SYNC & CONFLICT RESOLUTION
+   - Bi-directional Google/Outlook sync
+   - Drift detection when external changes occur
+   - Three resolution modes:
+     1. Accept External (pull from provider)
+     2. Keep AI Plan (push to provider)
+     3. Revert to Original (baseline restoration)
+   - Conflict queue for sequential resolution
+
+G) ROLLBACK CAPABILITY
+   - Automatic snapshots before optimisation
+   - One-click undo to previous state
+   - Snapshot browser in settings
+
+H) BULK OPERATIONS
+   - "Move everything from Friday to Sunday"
+   - "Mark all meetings as completed"
+   - Context-aware event identification
+   - Two-pass scheduling for conflict prevention
+
+I) 5-TIER TITLE RESOLUTION CASCADE
+   1. Exact match in existing items
+   2. Fuzzy match (>85% similarity)
+   3. Cross-entity search
+   4. LLM semantic resolution
+   5. Treat as new item creation
+   
+J) CLARIFICATION SYSTEM
+   - Ambiguity detection (multiple matches)
+   - Slot conflict detection
+   - Structured exception payloads
+   - Inline UI for resolution in chat
+
+K) TELEMETRY TRACKING
+   - completion_status: pending/completed/missed
+   - snooze_count: how many times pushed forward
+   - debt_applied: whether time was charged
+   - is_perishable: whether item can be made up later
+   - completed_at: timestamp of completion
+
+L) BIOMETRIC AUTHENTICATION
+   - iOS Face ID/Touch ID via Capgo NativeBiometric
+   - Desktop WebAuthn/Passkeys
+   - Seamless platform detection
+
+M) LOCATION-BASED REMINDERS
+   - Google Places integration for address search
+   - Geofencing with configurable radius
+   - Entry/exit trigger support
+   - Background location tracking (Capacitor)
+
+N) VOICE INPUT
+   - Cross-platform speech recognition
+   - iOS native plugin + Web Speech API
+   - Real-time transcription
+   - Preference input support
+
+O) ANALYTICS DASHBOARD
+   - Risk forecasting with ML model
+   - Energy distribution visualisation
+   - Completion trends over time
+   - Peak productivity hour detection
+   - Task friction tracking
+
+================================================================================
+                         8. FIREBASE DATA SCHEMA
+================================================================================
+
+COLLECTION: users/{user_id}/
+
+-------------------------------------------------------------------------------
+8.1 raw_events (Calendar Events)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  // Identity
+  id: string,                    // Firestore document ID
+  provider: string,              // "google" | "outlook" | "custom"
+  email: string,                 // Provider account email
+  external_id: string | null,    // Google/Outlook event ID
+  
+  // Content
+  title: string,
+  description: string | null,
+  location: string | null,
+  meeting_link: string | null,
+  attachments: string[],         // Firebase Storage URLs
+  category: string,              // "DEEP_WORK" | "MEETING" | etc.
+  
+  // Timestamps (ISO 8601)
+  start: string,                 // Current scheduled time
+  end: string,
+  original_start: string,        // Baseline (external sync reference)
+  original_end: string,
+  proposed_start: string | null, // AI optimisation suggestion
+  proposed_end: string | null,
+  previous_start: string | null, // Before last change
+  previous_end: string | null,
+  
+  // Recurrence
+  recurrence: string,            // "none" | "daily" | "weekly" | "monthly" | "custom"
+  recurrence_days: string[],     // For custom: ["1", "3", "5"] (Mon, Wed, Fri)
+  exception_dates: string[],     // ["2026-04-10", "2026-04-17"]
+  parent_event_id: string | null,
+  
+  // Travel
+  travel_time: number,           // Minutes
+  travel_origin: string | null,
+  travel_mode: string,           // "driving" | "transit" | "walking" | "cycling"
+  
+  // Sync Status
+  status: string,                // "synced" | "drifted" | "conflict" | "resolved"
+  has_drifted: boolean,
+  requires_review: boolean,
+  sync_action_required: string,  // "none" | "push_to_provider" | "pull_from_provider"
+  
+  // Constraints
+  is_locked: boolean,            // Exempt from optimisation
+  
+  // Telemetry
+  completion_status: string,     // "pending" | "completed" | "missed"
+  snooze_count: number,
+  completed_at: string | null,
+  debt_applied: boolean,
+  is_perishable: boolean,
+  
+  // Metadata
+  created_at: timestamp,
+  updated_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.2 tasks
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  // Identity
+  id: string,
+  user_id: string,
+  
+  // Content
+  title: string,
+  description: string | null,
+  sub_tasks: [
+    { id: string, title: string, completed: boolean }
+  ],
+  tags: string[],
+  
+  // Scheduling
+  estimated_duration: number | null,  // Minutes
+  start_date: string | null,          // ISO date
+  due_date: string | null,            // ISO date
+  energy_level: string,               // "high" | "medium" | "low"
+  priority: number,                   // 1-5
+  
+  // Linking
+  linked_event_ids: string[],
+  linked_reminder_ids: string[],
+  
+  // Status
+  status: string,                     // "pending" | "scheduled" | "completed" | "missed"
+  is_locked: boolean,
+  
+  // Telemetry
+  snooze_count: number,
+  completed_at: string | null,
+  debt_applied: boolean,
+  is_perishable: boolean,
+  
+  // Metadata
+  created_at: timestamp,
+  updated_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.3 reminders
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  // Identity
+  id: string,
+  user_id: string,
+  
+  // Content
+  title: string,
+  body: string | null,
+  
+  // Reference
+  type: string,                       // "event" | "task" | "standalone"
+  reference_id: string | null,        // Event or task ID
+  
+  // Trigger
+  trigger_type: string,               // "time" | "location" | "time_and_location"
+  trigger_time: string | null,        // ISO timestamp
+  location_data: {
+    lat: number,
+    lng: number,
+    radius: number,                   // Meters
+    trigger_on: string,               // "entry" | "exit"
+    address: string | null
+  } | null,
+  
+  // Recurrence
+  repeat: string,                     // "none" | "daily" | "weekly" | "monthly" | "custom"
+  custom_repeat_days: string[],       // ["1", "3", "5"]
+  
+  // Priority & Status
+  priority: string,                   // "standard" | "high"
+  status: string,                     // "pending" | "delivered" | "dismissed" | "missed"
+  
+  // Metadata
+  created_at: timestamp,
+  updated_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.4 preferences (User Scheduling Preferences)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  // Identity
+  id: string,
+  user_id: string,
+  
+  // Content
+  raw_input: string,                  // Original user text
+  
+  // Parsed Structure
+  category: string,                   // "DEEP_WORK" | "MEETING" | etc.
+  rule_type: string,                  // "WINDOW" | "BUFFER" | "DURATION" | "EXCLUSIVE"
+  type: string,                       // Constraint type identifier
+  
+  // Constraint Details
+  is_hard_constraint: boolean,
+  is_hard: boolean,                   // Alias
+  weight: number,                     // 1-10
+  
+  // LLM Analysis
+  reasoning: string,                  // Why this was parsed this way
+  
+  // Metadata
+  created_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.5 linked_accounts (External Calendar Connections)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  provider: string,                   // "google" | "outlook"
+  email: string,
+  refresh_token: string,              // OAuth refresh token
+  access_token: string | null,        // Cached access token
+  expires_at: timestamp | null,
+  scope: string,
+  connected_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.6 calendar_snapshots (Rollback Points)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  id: string,
+  user_id: string,
+  created_at: timestamp,
+  trigger: string,                    // "manual" | "pre_optimisation" | "scheduled"
+  events: [                           // Full event documents at snapshot time
+    { ...event_document }
+  ]
+}
+```
+
+-------------------------------------------------------------------------------
+8.7 debt_ledger (Time Debt Tracking)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  user_id: string,
+  active_debt_mins: number,           // Can be recovered
+  sunk_debt_mins: number,             // Permanently lost
+  time_refunded_mins: number,         // Recovered through rescheduling
+  last_sweep_at: timestamp,
+  history: [
+    {
+      timestamp: timestamp,
+      event_type: string,             // "debt_added" | "debt_refunded" | "debt_sunk"
+      amount_mins: number,
+      reference_id: string,           // Event or task ID
+      reference_title: string
+    }
+  ]
+}
+```
+
+-------------------------------------------------------------------------------
+8.8 webauthn_credentials (Passkey Storage)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  user_id: string,
+  credential_id: string,              // Base64 encoded
+  public_key: string,                 // Base64 encoded
+  sign_count: number,
+  device_name: string | null,
+  created_at: timestamp,
+  last_used_at: timestamp
+}
+```
+
+-------------------------------------------------------------------------------
+8.9 analytics_cache (Pre-computed Analytics)
+-------------------------------------------------------------------------------
+
+DOCUMENT FIELDS:
+```
+{
+  user_id: string,
+  computed_at: timestamp,
+  core_ledgers: {...},
+  procrastination_profile: [...],
+  risk_forecast: {...},
+  energy_analytics: {...},
+  completion_funnel: {...},
+  advanced_metrics: {...}
+}
+```
+
+================================================================================
+                         9. API ENDPOINT SUMMARY
+================================================================================
+
+-------------------------------------------------------------------------------
+9.1 AI/NLU Endpoints
+-------------------------------------------------------------------------------
+
+POST /api/ai/parse
+- Body: { text, user_id, context?, chat_history? }
+- Returns: { type, results[], message? }
+
+POST /api/ai/reparse
+- Body: { user_id, intents, entities, context }
+- Returns: Re-routed execution results
+
+-------------------------------------------------------------------------------
+9.2 Calendar Endpoints
+-------------------------------------------------------------------------------
+
+POST /api/calendar/sync
+- Body: { user_id }
+- Returns: { events[], drifted_count, conflict_count }
+
+POST /api/calendar/optimise/preview
+- Body: { user_id, date }
+- Returns: { preview_events[], snapshot_id }
+
+POST /api/calendar/optimise/commit
+- Body: { user_id, snapshot_id }
+- Returns: { events[] }
+
+POST /api/calendar/resolve
+- Body: { user_id, event_id, action }
+- Returns: { event }
+
+GET /api/events/list/{user_id}
+- Returns: { events[] }
+
+POST /api/events/create
+- Body: { user_id, event_data }
+- Returns: { event }
+
+PUT /api/events/update
+- Body: { user_id, event_id, update_data }
+- Returns: { event }
+
+DELETE /api/events/delete
+- Body: { user_id, event_id }
+- Returns: { success }
+
+-------------------------------------------------------------------------------
+9.3 Task Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/tasks/list/{user_id}
+- Returns: { tasks[] }
+
+POST /api/tasks/create
+- Body: { user_id, task_data }
+- Returns: { task }
+
+PUT /api/tasks/update
+- Body: { user_id, task_id, update_data }
+- Returns: { task }
+
+DELETE /api/tasks/delete
+- Body: { user_id, task_id }
+- Returns: { success }
+
+POST /api/tasks/estimate-duration
+- Body: { title, description }
+- Returns: { estimated_duration }
+
+POST /api/tasks/schedule/preview
+- Body: { user_id, task_ids }
+- Returns: { preview_events[] }
+
+POST /api/tasks/schedule/commit
+- Body: { user_id, preview_id }
+- Returns: { events[] }
+
+-------------------------------------------------------------------------------
+9.4 Reminder Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/reminders/list/{user_id}
+- Returns: { reminders[] }
+
+POST /api/reminders/create
+- Body: { user_id, reminder_data }
+- Returns: { reminder }
+
+PUT /api/reminders/update
+- Body: { user_id, reminder_id, update_data }
+- Returns: { reminder }
+
+DELETE /api/reminders/delete
+- Body: { user_id, reminder_id }
+- Returns: { success }
+
+-------------------------------------------------------------------------------
+9.5 Preference Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/preferences/list/{user_id}
+- Returns: { preferences[] }
+
+POST /api/preferences/parse
+- Body: { user_id, text }
+- Returns: { preference }
+
+DELETE /api/preferences/delete
+- Body: { user_id, preference_id }
+- Returns: { success }
+
+-------------------------------------------------------------------------------
+9.6 Analytics Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/analytics/dashboard/{user_id}
+- Returns: { dashboard_data }
+
+POST /api/analytics/sweep/{user_id}
+- Returns: { sweep_results }
+
+-------------------------------------------------------------------------------
+9.7 Authentication Endpoints
+-------------------------------------------------------------------------------
+
+POST /api/auth/login/start
+- Body: { email }
+- Returns: { challenge_options }
+
+POST /api/auth/login/verify
+- Body: { email, credential }
+- Returns: { custom_token }
+
+POST /api/auth/register/start
+- Body: { email }
+- Returns: { registration_options }
+
+POST /api/auth/register/verify
+- Body: { email, credential }
+- Returns: { success }
+
+POST /api/auth/mobile-biometric-login
+- Body: { email }
+- Returns: { custom_token }
+
+-------------------------------------------------------------------------------
+9.8 Location/Travel Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/places/autocomplete
+- Query: { query }
+- Returns: { predictions[] }
+
+GET /api/places/details
+- Query: { place_id }
+- Returns: { lat, lng, address }
+
+POST /api/location/travel-time
+- Body: { origin, destination, mode }
+- Returns: { duration_minutes }
+
+-------------------------------------------------------------------------------
+9.9 Account Linking Endpoints
+-------------------------------------------------------------------------------
+
+GET /api/accounts/linked/{user_id}
+- Returns: { accounts[] }
+
+POST /api/accounts/link/google
+- Body: { user_id, auth_code }
+- Returns: { account }
+
+POST /api/accounts/link/outlook
+- Body: { user_id, auth_code }
+- Returns: { account }
+
+DELETE /api/accounts/unlink
+- Body: { user_id, provider, email }
+- Returns: { success }
+
+================================================================================
+                              END OF DOCUMENTATION
+================================================================================
+
+Document Version: 2.0
+Last Updated: January 2026
+Author: AI Documentation Generator
+
+CHANGE LOG:
+- v2.0: Comprehensive update with detailed frontend documentation
+  - Added all 8 pages with state management and API calls
+  - Added all 11 components with props and features
+  - Added library utilities (AuthContext, NotificationProvider, etc.)
+  - Added TypeScript type definitions
+  - Expanded AI/ML section with training infrastructure
+  - Added complete Firebase schema documentation
+  - Added full API endpoint reference
+  - Updated architecture diagram
+  - Added custom_exceptions.py documentation
+  
+- v1.0: Initial documentation with basic structure

@@ -1,0 +1,881 @@
+# ===============================================================
+# database_handlers.py
+# Execution layer for all 16 ModernBERT scheduling intents 
+# ===============================================================
+
+import uuid
+import datetime as dt
+from datetime import timezone
+import dataparser
+import json
+import re
+from google.cloud import firestore
+from google import genai
+from google.genai import types
+
+
+
+from categorise import categorise_event
+
+class IntentExecutionEngine:
+    def __init__(self, db_client: firestore.Client, nlu_engine=None, gemini_api_key: str = None):
+        self.db = db_client
+        self.nlu_engine = nlu_engine
+        self.gemini_api_key = gemini_api_key
+
+        if self.gemini_api_key:
+            self.genai_client = genai.Client(api_key=self.gemini_api_key)
+        else:
+            self.genai_client = None
+
+    def _generate_id(self, prefix: str) -> str:
+        """Generates a consistent ID format."""
+        return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+    def _format_time(self, iso_string: str) -> str:
+        """Formats ISO timestamps into readable UK English strings."""
+        if not iso_string:
+            return "the requested time"
+        try:
+            clean_iso = iso_string.replace("Z", "+00:00")
+            parsed_dt = dt.datetime.fromisoformat(clean_iso)
+            return parsed_dt.strftime("%A at %-I:%M %p")  
+        except ValueError:
+            return "the requested time"
+
+    # ------------------------------------------------------------------ #
+    #  AMBIGUITY CHECKER                                                 #
+    # ------------------------------------------------------------------ #
+    def _check_ambiguity(self, matches: list, title_query: str):
+        """
+        Evaluates a list of matched titles. 
+        If multiple titles tie for the match, it halts execution and asks the user for clarity.
+        """
+        if len(matches) > 1:
+            titles = ", ".join(f"'{t}'" for t in matches)
+            raise ValueError(
+                f"I found multiple events matching '{title_query}': {titles}. "
+                f"Could you be more specific?"
+            )
+        return matches[0] if matches else None
+
+    # ------------------------------------------------------------------ #
+    #  TITLE RESOLUTION STAGES                                           #
+    # ------------------------------------------------------------------ #
+
+    def _get_wordnet_synonyms(self, word: str) -> set:
+        try:
+            from nltk.corpus import wordnet
+            synonyms = set()
+            for syn in wordnet.synsets(word):
+                for lemma in syn.lemmas():
+                    synonyms.add(lemma.name().replace("_", " ").lower())
+            synonyms.discard(word.lower())
+            return synonyms
+        except Exception:
+            return set()
+
+    def _fuzzy_match_title(self, title_query: str, candidates: list, threshold: int = 80):
+        try:
+            from rapidfuzz import process, fuzz
+            results = process.extract(
+                title_query, candidates,
+                scorer=fuzz.partial_ratio,
+                score_cutoff=threshold
+            )
+            if not results:
+                return []
+            
+            # rapidfuzz returns (match, score, index). Find the max score achieved.
+            max_score = results[0][1]
+            # Return all candidates that mathematically tie for the top score
+            return [res[0] for res in results if res[1] == max_score]
+        except ImportError:
+            return []
+
+    def _wordnet_match_title(self, title_query: str, candidates: list):
+        query_words = title_query.lower().split()
+        all_synonyms = set(query_words)
+        for word in query_words:
+            all_synonyms.update(self._get_wordnet_synonyms(word))
+
+        return [cand for cand in candidates if any(syn in cand.lower() for syn in all_synonyms)]
+
+    def _embedding_match_title(self, title_query: str, candidates: list, threshold: float = 0.75):
+        if not self.nlu_engine:
+            return []
+            
+        try:
+            import torch
+            import torch.nn.functional as F
+            tokenizer = self.nlu_engine.tokenizer
+            model     = self.nlu_engine.intent_model
+            device    = next(model.parameters()).device
+
+            def get_cls(text):
+                inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=64).to(device)
+                with torch.no_grad():
+                    outputs = model(**inputs, output_hidden_states=True)
+                return outputs.hidden_states[-1][:, 0, :]
+
+            query_emb = get_cls(title_query)
+            scored_candidates = []
+            
+            for candidate in candidates:
+                score = F.cosine_similarity(query_emb, get_cls(candidate)).item()
+                if score >= threshold:
+                    scored_candidates.append((candidate, score))
+                    
+            if not scored_candidates:
+                return []
+                
+            max_score = max(score for _, score in scored_candidates)
+            # Use a tight 0.01 margin to catch true mathematical ties at the top
+            return [cand for cand, score in scored_candidates if score >= max_score - 0.01]
+        except Exception as e:
+            print(f"[EmbeddingMatcher] Failed: {e}")
+            return []
+
+    def _resolve_title_with_gemini(self, title_query: str, candidates: list):
+        if not self.genai_client or not candidates:
+            return []
+        prompt = f"""
+        A user referred to a calendar event as: "{title_query}"
+        Their upcoming event titles: {json.dumps(candidates)}
+        Which titles are they most likely referring to?
+        Rules:
+        - Return ONLY valid JSON: {{"matched_titles": ["..."]}}
+        - If multiple events are equally likely, return them all in the array.
+        - If nothing is a confident match, return an empty array: {{"matched_titles": []}}
+        - Never guess. A wrong match is worse than no match.
+        """
+        try:
+            response = self.genai_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text).get("matched_titles", [])
+        except Exception as e:
+            print(f"[TitleResolver] Gemini fallback failed: {e}")
+            return []
+
+    def _find_event_by_title(self, user_id: str, title_query: str):
+        if not title_query:
+            return None
+
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+        now_iso = dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        all_events = []
+        for doc in events_ref.where("end", ">=", now_iso).stream():
+            event_data = doc.to_dict()
+            event_data["_doc_id"] = doc.id
+            all_events.append(event_data)
+
+        all_titles = [e.get("title", "") for e in all_events if e.get("title")]
+        title_to_event = {e.get("title", ""): e for e in all_events}
+
+        # Stage 1 — Substring
+        stage1_matches = [t for t in all_titles if title_query.lower() in t.lower()]
+        resolved_title = self._check_ambiguity(stage1_matches, title_query)
+        if resolved_title:
+            return title_to_event[resolved_title]
+
+        # Stage 2 — Fuzzy
+        resolved_title = self._check_ambiguity(self._fuzzy_match_title(title_query, all_titles), title_query)
+        if resolved_title:
+            print(f"[TitleResolver] Fuzzy: '{title_query}' -> '{resolved_title}'")
+            return title_to_event[resolved_title]
+
+        # Stage 3 — WordNet synonyms
+        resolved_title = self._check_ambiguity(self._wordnet_match_title(title_query, all_titles), title_query)
+        if resolved_title:
+            print(f"[TitleResolver] WordNet: '{title_query}' -> '{resolved_title}'")
+            return title_to_event[resolved_title]
+
+        # Stage 4 — Embedding similarity
+        resolved_title = self._check_ambiguity(self._embedding_match_title(title_query, all_titles), title_query)
+        if resolved_title:
+            print(f"[TitleResolver] Embedding: '{title_query}' -> '{resolved_title}'")
+            return title_to_event[resolved_title]
+
+        # Stage 5 — Gemini (last resort)
+        print(f"[TitleResolver] All local stages missed '{title_query}'. Trying Gemini.")
+        resolved_title = self._check_ambiguity(self._resolve_title_with_gemini(title_query, all_titles), title_query)
+        if resolved_title:
+            print(f"[TitleResolver] Gemini: '{title_query}' -> '{resolved_title}'")
+            return title_to_event[resolved_title]
+
+        return None
+    
+    def _is_slot_available(self, user_id: str, start_iso: str, end_iso: str,
+                            exclude_doc_id: str = None) -> bool:
+        """
+        Returns True if no existing event overlaps the proposed [start, end) window.
+        Overlap condition: existing.start < proposed_end AND existing.end > proposed_start
+        Firestore can only filter on one inequality field, so we filter on end >= start
+        and check the other bound in Python.
+        """
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+        candidates = events_ref.where("end", ">", start_iso).stream()
+        for doc in candidates:
+            if exclude_doc_id and doc.id == exclude_doc_id:
+                continue
+            data = doc.to_dict()
+            if data.get("start", "") < end_iso:   # overlaps
+                return False
+        return True
+
+    def _find_next_available_slot(self, user_id: str, start_iso: str, end_iso: str,
+                                exclude_doc_id: str = None) -> tuple[str, str]:
+        """
+        If the preferred slot is busy, walks forward in 30-minute steps
+        (up to 12 hours) to find the next free window of the same duration.
+        Returns (start_iso, end_iso) — falls back to original if nothing found.
+        """
+        start_dt = dt.datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        end_dt   = dt.datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+        duration = end_dt - start_dt
+
+        for _ in range(24):   # 24 × 30 min = 12 hours of search
+            s_iso = start_dt.isoformat().replace("+00:00", "Z")
+            e_iso = (start_dt + duration).isoformat().replace("+00:00", "Z")
+            if self._is_slot_available(user_id, s_iso, e_iso, exclude_doc_id):
+                return s_iso, e_iso
+            start_dt += dt.timedelta(minutes=30)
+
+        return start_iso, end_iso   # nothing found — return original and let caller decide
+
+
+
+
+    def _find_task_by_title(self, user_id: str, title_query: str):
+        if not title_query:
+            return None
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+        pending_tasks = tasks_ref.where("status", "==", "pending").stream()
+
+        matches = []
+        for doc in pending_tasks:
+            task_data = doc.to_dict()
+            if title_query.lower() in task_data.get("title", "").lower():
+                task_data["_doc_id"] = doc.id
+                matches.append(task_data)
+
+        if len(matches) > 1:
+            titles = ", ".join(f"'{t.get('title')}'" for t in matches)
+            raise ValueError(f"I found multiple tasks matching '{title_query}': {titles}. Could you be more specific?")
+
+        return matches[0] if matches else None
+
+    def _find_reminder_by_target(self, user_id: str, target_query: str):
+        if not target_query:
+            return None
+        reminders_ref = self.db.collection("users").document(user_id).collection("reminders")
+        pending_reminders = reminders_ref.where("status", "==", "pending").stream()
+
+        matches = []
+        for doc in pending_reminders:
+            rem_data = doc.to_dict()
+            if target_query.lower() in rem_data.get("title", "").lower():
+                rem_data["_doc_id"] = doc.id
+                matches.append(rem_data)
+
+        if len(matches) > 1:
+            titles = ", ".join(f"'{r.get('title')}'" for r in matches)
+            raise ValueError(f"I found multiple reminders matching '{target_query}': {titles}. Could you be more specific?")
+
+        return matches[0] if matches else None
+
+    # ------------------------------------------------------------------ #
+    #  INTENT EXECUTORS                                                  #
+    # ------------------------------------------------------------------ #
+
+    # --- 1. CREATE_EVENT ---
+    def handle_create_event(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[CreateEvent] Received entities: {entities}")
+        title = entities.get("events", ["Untitled Event"])[0]
+        start_iso = entities.get("start_timestamp")
+        end_iso = entities.get("end_timestamp")
+
+        if not start_iso:
+            raise ValueError(f"I couldn't determine when to schedule '{title}'. Could you specify a date or time?")
+
+        doc_id = self._generate_id("custom")
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+
+        category = categorise_event(title)
+
+        event_data = {
+            "id": doc_id,
+            "title": title,
+            "start": start_iso,
+            "end": end_iso,
+            "category": category,
+            "sync_status": "synced",
+            "requires_review": False,
+            "has_drifted": False,
+            "original_start": start_iso,
+            "original_end": end_iso,
+            "sync_action_required": "push_to_provider",
+            "provider": "custom",
+            "email": user_id
+        }
+
+        events_ref.document(doc_id).set(event_data)
+        friendly_time = self._format_time(start_iso)
+
+        return {
+            "status": "success",
+            "message": f"I have scheduled '{title}' for {friendly_time}.",
+            "data": {"eventId": doc_id}
+        }
+
+    # --- 2. UPDATE_EVENT ---
+    def handle_update_event(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[UpdateEvent] Received entities: {entities}")
+        """
+        Handles both single and bulk event moves.
+        For each event:
+        1. Fetch the original record to get its existing duration.
+        2. Apply the new date from entities while keeping the original clock time,
+            UNLESS the user also specified a new time.
+        3. Check slot availability; if busy, find the next free slot of the same length.
+        """
+        event_titles = [t for t in entities.get("events", []) if t]
+        new_date_str  = entities.get("dates", [None])[0]
+        new_time_str  = entities.get("times", [None])[0]   # only set if user stated one
+
+        if not event_titles:
+            raise ValueError("No event title found to update.")
+
+        results   = []
+        messages  = []
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+
+        for title in event_titles:
+            target_event = self._find_event_by_title(user_id, title)
+            if not target_event:
+                messages.append(f"Could not find an event matching '{title}'.")
+                continue
+
+            doc_id    = target_event["_doc_id"]
+            orig_start = target_event.get("start", "")
+            orig_end   = target_event.get("end",   "")
+
+            # --- Compute new start ---
+            if new_date_str and new_time_str:
+                # User gave both a date and a time — use them directly
+                combined = f"{new_date_str} at {new_time_str}"
+                new_start = dateparser.parse(
+                    combined,
+                    settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True, "DATE_ORDER": "DMY"}
+                )
+            elif new_date_str and orig_start:
+                # User gave only a date — keep the original clock time
+                orig_dt = dt.datetime.fromisoformat(orig_start.replace("Z", "+00:00"))
+                orig_time_str = orig_dt.strftime("%H:%M")
+                combined = f"{new_date_str} at {orig_time_str}"
+                new_start = dateparser.parse(
+                    combined,
+                    settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True, "DATE_ORDER": "DMY"}
+                )
+            else:
+                # Fallback: use the normalised timestamp from entity pipeline
+                raw_ts = entities.get("start_timestamp")
+                new_start = dt.datetime.fromisoformat(raw_ts.replace("Z", "+00:00")) if raw_ts else None
+
+            if not new_start:
+                messages.append(f"Couldn't determine the new time for '{title}'.")
+                continue
+
+            # --- Compute new end (preserve original duration) ---
+            if orig_start and orig_end:
+                orig_start_dt = dt.datetime.fromisoformat(orig_start.replace("Z", "+00:00"))
+                orig_end_dt   = dt.datetime.fromisoformat(orig_end.replace("Z", "+00:00"))
+                duration      = orig_end_dt - orig_start_dt
+            else:
+                duration = dt.timedelta(hours=1)
+
+            new_end = new_start + duration
+
+            new_start_iso = new_start.isoformat().replace("+00:00", "Z")
+            new_end_iso   = new_end.isoformat().replace("+00:00", "Z")
+
+            # --- Availability check ---
+            if not self._is_slot_available(user_id, new_start_iso, new_end_iso, exclude_doc_id=doc_id):
+                new_start_iso, new_end_iso = self._find_next_available_slot(
+                    user_id, new_start_iso, new_end_iso, exclude_doc_id=doc_id
+                )
+                # Let the user know we shifted the time
+                shifted_dt = dt.datetime.fromisoformat(new_start_iso.replace("Z", "+00:00"))
+                messages.append(
+                    f"'{target_event.get('title')}' moved to {self._format_time(new_start_iso)} "
+                    f"(original slot was busy)."
+                )
+            else:
+                messages.append(
+                    f"'{target_event.get('title')}' moved to {self._format_time(new_start_iso)}."
+                )
+
+            events_ref.document(doc_id).update({
+                "start":                new_start_iso,
+                "end":                  new_end_iso,
+                "has_drifted":          False,
+                "sync_action_required": "push_to_provider",
+            })
+            results.append({"eventId": doc_id, "newStart": new_start_iso, "newEnd": new_end_iso})
+
+        if not results:
+            raise ValueError(" ".join(messages) or "No events were updated.")
+
+        return {
+            "status":  "success",
+            "message": " ".join(messages),
+            "data":    {"updated": results}
+        }
+    # --- 3. DELETE_EVENT ---
+    def handle_delete_event(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[DeleteEvent] Received entities: {entities}")
+        target_title = entities.get("events", [""])[0]
+        target_event = self._find_event_by_title(user_id, target_title)
+
+        if not target_event:
+            raise ValueError(f"I could not find an event matching '{target_title}' to cancel.")
+
+        doc_id = target_event["_doc_id"]
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+        events_ref.document(doc_id).delete()
+
+        return {
+            "status": "success",
+            "message": f"I have cancelled '{target_event.get('title')}'.",
+            "data": {"deletedId": doc_id}
+        }
+
+    # --- 4. QUERY_EVENT ---
+    def handle_query_event(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[QueryEvent] Received entities: {entities}")
+        target_title = entities.get("events", [""])[0]
+        target_date = entities.get("start_timestamp")
+
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+        now_iso = dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        query = events_ref.where("end", ">=", now_iso)
+
+        if target_date:
+            try:
+                target_dt = dt.datetime.fromisoformat(target_date.replace("Z", "+00:00"))
+                day_start = target_dt.replace(hour=0, minute=0, second=0).isoformat().replace("+00:00", "Z")
+                day_end   = target_dt.replace(hour=23, minute=59, second=59).isoformat().replace("+00:00", "Z")
+                query = events_ref.where("start", ">=", day_start).where("start", "<=", day_end)
+            except ValueError:
+                pass  
+
+        results = [doc.to_dict() for doc in query.stream()]
+
+        if target_title:
+            results = [e for e in results if target_title.lower() in e.get("title", "").lower()]
+
+        return {
+            "status": "success",
+            "message": f"I found {len(results)} upcoming event{'s' if len(results) != 1 else ''} matching your query.",
+            "data": {"events": results}
+        }
+
+    # --- 5. FIND_FREE_TIME ---
+    def handle_find_free_time(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[FindFreeTime] Received entities: {entities}")
+        target_date = entities.get("start_timestamp")
+        friendly_time = self._format_time(target_date) if target_date else "the requested timeframe"
+
+        return {
+            "status": "success",
+            "message": f"I am pulling up your free slots around {friendly_time}.",
+            "data": {"action": "render_free_time_ui", "target_date": target_date}
+        }
+
+    # --- 6. SUGGEST_TIME ---
+    def handle_suggest_time(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[SuggestTime] Received entities: {entities}")
+        duration_list = entities.get("durations", [])
+        duration_str = duration_list[0] if duration_list else "the requested duration"
+
+        return {
+            "status": "success",
+            "message": f"I am calculating the optimal time slot for {duration_str} based on your preferences.",
+            "data": {"action": "trigger_optimiser"}
+        }
+
+    # --- 7. CHANGE_RECURRENCE ---
+    def handle_change_recurrence(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[ChangeRecurrence] Received entities: {entities}")
+        target_title = entities.get("events", [""])[0]
+        recurrence_rule = entities.get("recurrence", [""])[0]
+
+        target_event = self._find_event_by_title(user_id, target_title)
+        if not target_event:
+            raise ValueError(f"I could not find '{target_title}' to change its recurrence.")
+
+        doc_id = target_event["_doc_id"]
+        events_ref = self.db.collection("users").document(user_id).collection("raw_events")
+        events_ref.document(doc_id).update({
+            "recurrence": recurrence_rule,
+            "sync_action_required": "push_to_provider"
+        })
+
+        return {
+            "status": "success",
+            "message": f"I have updated '{target_event.get('title')}' to repeat {recurrence_rule}.",
+            "data": {"eventId": doc_id, "recurrence": recurrence_rule}
+        }
+
+    # --- 8. CREATE_TASK ---
+    def handle_create_task(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[CreateTask] Received entities: {entities}")
+        title = entities.get("tasks", ["New Task"])[0]
+        due_date = entities.get("start_timestamp")
+
+        PRIORITY_MAP = {"high": 1, "urgent": 1, "medium": 3, "normal": 3, "low": 5}
+        raw_priority = entities.get("preferences", [None])[0]
+        priority = PRIORITY_MAP.get(str(raw_priority).lower(), 3) if raw_priority else 3
+
+        doc_id = self._generate_id("task")
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+
+        task_data = {
+            "id": doc_id,
+            "title": title,
+            "status": "pending",
+            "priority": priority,
+            "due_date": due_date,
+            "is_locked": False,
+            "created_at": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "sub_tasks": [],
+            "tags": [],
+            "linked_reminder_ids": []
+        }
+
+        tasks_ref.document(doc_id).set(task_data)
+        msg = f"I have added '{title}' to your task list."
+        if due_date:
+            msg = f"I have added '{title}' to your task list, due {self._format_time(due_date)}."
+
+        return {
+            "status": "success",
+            "message": msg,
+            "data": {"taskId": doc_id}
+        }
+
+    # --- 9. UPDATE_TASK ---
+    def handle_update_task(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[UpdateTask] Received entities: {entities}")
+        target_title = entities.get("tasks", [""])[0]
+        new_due = entities.get("start_timestamp")
+
+        target_task = self._find_task_by_title(user_id, target_title)
+        if not target_task:
+            raise ValueError(f"I could not find a pending task matching '{target_title}'.")
+
+        doc_id = target_task["_doc_id"]
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+
+        update_data = {}
+        if new_due:
+            update_data["due_date"] = new_due
+
+        PRIORITY_MAP = {"high": 1, "urgent": 1, "medium": 3, "normal": 3, "low": 5}
+        raw_priority = entities.get("preferences", [None])[0]
+        if raw_priority:
+            update_data["priority"] = PRIORITY_MAP.get(str(raw_priority).lower(), 3)
+
+        if update_data:
+            tasks_ref.document(doc_id).update(update_data)
+
+        return {
+            "status": "success",
+            "message": f"I have updated the task '{target_task.get('title')}'.",
+            "data": {"taskId": doc_id}
+        }
+
+    # --- 10. DELETE_TASK ---
+    def handle_delete_task(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[DeleteTask] Received entities: {entities}")
+        target_title = entities.get("tasks", [""])[0]
+        target_task = self._find_task_by_title(user_id, target_title)
+
+        if not target_task:
+            raise ValueError(f"I could not find the task '{target_title}' to delete.")
+
+        doc_id = target_task["_doc_id"]
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+        tasks_ref.document(doc_id).delete()
+
+        return {
+            "status": "success",
+            "message": f"I have deleted the task '{target_task.get('title')}'.",
+            "data": {"deletedId": doc_id}
+        }
+
+    # --- 11. COMPLETE_TASK ---
+    def handle_complete_task(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[CompleteTask] Received entities: {entities}")
+        target_title = entities.get("tasks", [""])[0]
+        target_task = self._find_task_by_title(user_id, target_title)
+
+        if not target_task:
+            raise ValueError(f"I could not find a pending task matching '{target_title}'.")
+
+        doc_id = target_task["_doc_id"]
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+        tasks_ref.document(doc_id).update({
+            "status": "completed",
+            "completed_at": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        })
+
+        return {
+            "status": "success",
+            "message": f"I have marked '{target_task.get('title')}' as complete.",
+            "data": {"taskId": doc_id}
+        }
+
+    # --- 12. QUERY_TASK ---
+    def handle_query_task(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[QueryTask] Received entities: {entities}")
+        tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
+        pending_tasks = tasks_ref.where("status", "==", "pending").stream()
+        results = [doc.to_dict() for doc in pending_tasks]
+
+        return {
+            "status": "success",
+            "message": f"You currently have {len(results)} pending task{'s' if len(results) != 1 else ''}.",
+            "data": {"tasks": results}
+        }
+
+    # --- 13. SET_REMINDER ---
+    def handle_set_reminder(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[SetReminder] Received entities: {entities}")
+        target = entities.get("events", entities.get("tasks", ["a reminder"]))[0]
+        trigger_iso = entities.get("start_timestamp")
+
+        if not trigger_iso:
+            raise ValueError(f"I couldn't determine when to set the reminder for '{target}'. Could you specify a time?")
+
+        doc_id = self._generate_id("rem")
+        reminders_ref = self.db.collection("users").document(user_id).collection("reminders")
+
+        reminder_data = {
+            "id": doc_id,
+            "title": target,
+            "type": "standalone",
+            "status": "pending",
+            "trigger_type": "time",
+            "trigger_time": trigger_iso,
+            "priority": "standard",
+            "repeat": "none",
+            "created_at": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        }
+
+        reminders_ref.document(doc_id).set(reminder_data)
+        friendly_time = self._format_time(trigger_iso)
+
+        return {
+            "status": "success",
+            "message": f"I have set a reminder for '{target}' at {friendly_time}.",
+            "data": {"reminderId": doc_id}
+        }
+
+    # --- 14. UPDATE_REMINDER ---
+    def handle_update_reminder(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[UpdateReminder] Received entities: {entities}")
+        target_title = entities.get("reminders", entities.get("events", entities.get("tasks", [""])))[0]
+        new_trigger = entities.get("start_timestamp")
+
+        if not new_trigger:
+            raise ValueError(f"I couldn't determine what time to update the reminder for '{target_title}' to. Could you specify a time?")
+
+        target_reminder = self._find_reminder_by_target(user_id, target_title)
+        if not target_reminder:
+            raise ValueError(f"I could not find a pending reminder for '{target_title}'.")
+
+        doc_id = target_reminder["_doc_id"]
+        reminders_ref = self.db.collection("users").document(user_id).collection("reminders")
+        reminders_ref.document(doc_id).update({
+            "trigger_time": new_trigger,
+            "updated_at": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        })
+
+        friendly_time = self._format_time(new_trigger)
+        return {
+            "status": "success",
+            "message": f"I have updated your reminder for '{target_reminder.get('title')}' to {friendly_time}.",
+            "data": {"reminderId": doc_id}
+        }
+
+    # --- 15. DELETE_REMINDER ---
+    def handle_delete_reminder(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[DeleteReminder] Received entities: {entities}")
+        target_title = entities.get("reminders", entities.get("events", entities.get("tasks", [""])))[0]
+        target_reminder = self._find_reminder_by_target(user_id, target_title)
+
+        if not target_reminder:
+            raise ValueError(f"I could not find a reminder for '{target_title}' to delete.")
+
+        doc_id = target_reminder["_doc_id"]
+        reminders_ref = self.db.collection("users").document(user_id).collection("reminders")
+        reminders_ref.document(doc_id).delete()
+
+        return {
+            "status": "success",
+            "message": f"I have removed the reminder for '{target_reminder.get('title')}'.",
+            "data": {"deletedId": doc_id}
+        }
+
+    # --- 16. SET_PREFERENCES ---
+    def handle_set_preferences(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print(f"[SetPreferences] Received entities: {entities}")
+        if not self.genai_client:
+            raise ValueError("Gemini API key is required to parse complex preferences.")
+
+        prompt = f"""
+        You are a Scheduling Logic Converter. 
+        Translate natural language preferences into a structured JSON format for a Constraint Satisfaction Algorithm.
+
+        ### OUTPUT FORMAT:
+        {{
+            "category": "DEEP_WORK | SHALLOW_WORK | MEETING | WORKOUT | SOCIAL | LEISURE | TRAVEL | MEAL | ALL",
+            "type": "WINDOW | BUFFER | DURATION",
+            "params": {{ 
+                "start": number (0-24), 
+                "end": number (0-24),
+                "minutes": number (for buffers)
+            }},
+            "is_hard": boolean, 
+            "is_exclusive": boolean,
+            "is_routine": boolean,
+            "duration": number | null (minutes),
+            "weight": 1-10,
+            "reasoning": "Brief explanation"
+        }}
+
+        ### LOGIC RULES:
+        1. "No X after Y" -> WINDOW {{ "start": 0, "end": Y }}
+        2. "No X before Y" -> WINDOW {{ "start": Y, "end": 24 }}
+        3. "I need a gap/break after X" -> BUFFER {{ "minutes": 15 }}
+        4. "Only X is allowed during Y" -> is_exclusive: true
+        5. "Every day I do X for [duration] at [time]" -> is_routine: true, duration: [minutes]
+        
+        ### WEIGHTING & CERTAINTY:
+        - If the user sounds certain ("Never", "Must", "Strictly", "Every day"), set is_hard: true and weight: 10.
+        - If the user sounds suggestive ("Prefer", "Ideally", "I'd like"), set is_hard: false and assign a weight between 1-9 based on their emphasis.
+
+        ### USER INPUT:
+        "{raw_text}"
+        
+        Return ONLY JSON.
+        """
+
+        response = self.genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json")
+        )
+
+        parsed_pref = json.loads(response.text)
+
+        doc_ref = self.db.collection("users").document(user_id).collection("preferences").document()
+        doc_ref.set(parsed_pref)
+
+        return {
+            "status": "success",
+            "message": f"I have saved your scheduling preference: {parsed_pref.get('reasoning', 'Preference applied')}.",
+            "data": {"preferenceId": doc_ref.id, "preferenceData": parsed_pref}
+        }
+
+    # --- DISPATCHER MAP ---
+    def get_intent_map(self) -> dict:
+        """Returns a dictionary mapping all 16 intent strings to their execution functions."""
+        return {
+            "CREATE_EVENT":      self.handle_create_event,
+            "UPDATE_EVENT":      self.handle_update_event,
+            "DELETE_EVENT":      self.handle_delete_event,
+            "QUERY_EVENT":       self.handle_query_event,
+            "FIND_FREE_TIME":    self.handle_find_free_time,
+            "SUGGEST_TIME":      self.handle_suggest_time,
+            "CHANGE_RECURRENCE": self.handle_change_recurrence,
+            "CREATE_TASK":       self.handle_create_task,
+            "UPDATE_TASK":       self.handle_update_task,
+            "DELETE_TASK":       self.handle_delete_task,
+            "COMPLETE_TASK":     self.handle_complete_task,
+            "QUERY_TASK":        self.handle_query_task,
+            "SET_REMINDER":      self.handle_set_reminder,
+            "UPDATE_REMINDER":   self.handle_update_reminder,
+            "DELETE_REMINDER":   self.handle_delete_reminder,
+            "SET_PREFERENCES":   self.handle_set_preferences,
+        }
+
+
+
+
+
+# --- 1. NEW CLASS: DebtRescheduler (Properly inherits from TaskScheduler) ---
+class DebtRescheduler(TaskScheduler):
+    def schedule_debt(self, start_date: dt.date, end_date: dt.date, debt_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        print(f"\n[DebtRescheduler] 🧠 Booting up. Attempting to spread {len(debt_items)} reclaimed items...")
+        ghost_events = []
+        
+        # Sort items by highest priority first
+        debt_items.sort(key=lambda x: x.get("priority", 3))
+
+        # This array tracks the days we place tasks on so we can apply spacing penalties
+        scheduled_dates_history = []
+
+        for item in debt_items:
+            duration = item.get("duration", 60)
+            category = "DEEP_WORK" if item.get("priority", 3) <= 2 else "SHALLOW_WORK"
+            if item.get("original_type") == "event":
+                category = "MEETING"
+
+            print(f"[DebtRescheduler] 🎯 Finding spread slot for: '{item.get('title')}' ({duration} mins | {category})")
+            
+            # Using the TaskScheduler's advanced cross-day finder to prevent clustering
+            best_slot_found = self._find_best_slot_across_days(
+                start_date=start_date,
+                end_date=end_date,
+                duration=duration,
+                category=category,
+                due_dt=None, 
+                scheduled_dates=scheduled_dates_history
+            )
+
+            if best_slot_found:
+                print(f"[DebtRescheduler]   ✅ Placed on {best_slot_found.start.date()} at {best_slot_found.start.strftime('%H:%M')} (Score: {best_slot_found.score})")
+                scheduled_dates_history.append(best_slot_found.start.date())
+                
+                ghost_event = {
+                    "id": f"ghost_debt_{uuid.uuid4().hex[:8]}",
+                    "title": f"🔄 {item['title']}", 
+                    "start": best_slot_found.start.isoformat() + "Z",
+                    "end": best_slot_found.end.isoformat() + "Z",
+                    "is_locked": True, # Solid wall for subsequent iterations
+                    "provider": "tasks" if item["original_type"] == "task" else "custom",
+                    "status": "synced",
+                    "requires_review": False,
+                    "has_drifted": False,
+                    "category": category,
+                    "is_ghost": True,
+                    "linked_task_id": item["id"] if item["original_type"] == "task" else None,
+                    "linked_event_id": item["id"] if item["original_type"] == "event" else None,
+                    "debt_duration": duration 
+                }
+                
+                # Append to existing events so the next task doesn't overlap it
+                self.existing_events.append(ghost_event)
+                ghost_events.append(ghost_event)
+            else:
+                print(f"[DebtRescheduler]   ❌ FAILED to find any non-overlapping slot for '{item['title']}'. Calendar is completely full.")
+
+        print(f"[DebtRescheduler] 🏁 Finished. Successfully distributed {len(ghost_events)} catch-up blocks.")
+        return ghost_events
