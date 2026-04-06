@@ -10,7 +10,9 @@ import LinkedAccounts from "@/components/LinkedAccounts";
 import CalendarSafety from "@/components/CalendarSafety";
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
+import VocabularySettings from "@/components/VocabularySettings";
 import RegionTimezone from "@/components/RegionTimezone";
+import SecuritySettings from "@/components/SecuritySettings";
 
 const SETTINGS_GROUPS = [
   {
@@ -23,6 +25,16 @@ const SETTINGS_GROUPS = [
         icon: (
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+          </svg>
+        ) 
+      },
+
+      { 
+        id: "vocabulary", 
+        label: "Dictionary & Aliases", 
+        icon: (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
           </svg>
         ) 
       },
@@ -53,6 +65,15 @@ const SETTINGS_GROUPS = [
         icon: (
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+          </svg>
+        ) 
+      },
+      { 
+        id: "security", 
+        label: "Security & Login", 
+        icon: (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
           </svg>
         ) 
       },
@@ -163,6 +184,10 @@ export default function SettingsPage() {
         return <CalendarSafety key={`safe-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
       case "region-timezone":
         return <RegionTimezone key={`tz-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
+      case "vocabulary":
+        return <VocabularySettings key={`vocab-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
+      case "security":
+        return <SecuritySettings key={`sec-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-full bg-transparent animate-in fade-in">

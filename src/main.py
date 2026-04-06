@@ -424,19 +424,6 @@ async def verify_login(req: VerifyLoginRequest):
         raise HTTPException(status_code=400, detail=str(e))
     
 
-@app.get("/api/secure-test")
-async def secure_test_endpoint(user_data: dict = Depends(verify_firebase_token)):
-    # If the code reaches this line, the token is 100% valid
-    # user_data contains their decoded Firebase profile, including their unique uid
-    user_id = user_data.get("uid")
-    email = user_data.get("email")
-    
-    return {
-        "status": "success", 
-        "message": "You have successfully breached the mainframe.",
-        "authorised_user": user_id,
-        "email": email
-    }
 
 
 # --- NATIVE MOBILE BIOMETRIC ENDPOINTS ---
@@ -482,6 +469,76 @@ async def mobile_biometric_login(req: MobileBiometricLoginRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+
+@app.get("/api/auth/biometrics/status/{user_id}")
+async def get_biometric_status(user_id: str):
+    """Checks if the user has active Passkeys or Mobile Biometrics."""
+    try:
+        # 1. Check Mobile Biometrics Flag
+        user_doc = db.collection("users").document(user_id).get()
+        has_mobile = False
+        if user_doc.exists:
+            has_mobile = user_doc.to_dict().get("has_mobile_biometrics", False)
+
+        # 2. Check Passkeys (WebAuthn)
+        # We only need to know if at least one exists, so limit(1) is highly efficient
+        passkeys_ref = db.collection("users").document(user_id).collection("passkeys").limit(1).get()
+        has_passkey = len(passkeys_ref) > 0
+
+        return {
+            "status": "success",
+            "mobile_enabled": has_mobile,
+            "passkey_enabled": has_passkey
+        }
+    except Exception as e:
+        print(f"❌ Error checking biometric status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve biometric status")
+
+
+@app.delete("/api/auth/biometrics/mobile/{user_id}")
+async def remove_mobile_biometrics(user_id: str):
+    """Disables FaceID / TouchID for the mobile app."""
+    try:
+        user_ref = db.collection("users").document(user_id)
+        # We update instead of set to ensure we don't overwrite other user data
+        user_ref.update({
+            "has_mobile_biometrics": False
+        })
+        print(f"🔒 Disabled mobile biometrics for user {user_id}")
+        return {"status": "success", "message": "Mobile biometrics disabled"}
+    except Exception as e:
+        print(f"❌ Error removing mobile biometrics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to disable mobile biometrics")
+
+
+@app.delete("/api/auth/biometrics/passkeys/{user_id}")
+async def remove_passkeys(user_id: str):
+    """Deletes all registered WebAuthn passkeys for the user."""
+    try:
+        passkeys_ref = db.collection("users").document(user_id).collection("passkeys")
+        docs = passkeys_ref.stream()
+        
+        batch = db.batch()
+        deleted_count = 0
+        
+        # Firestore requires deleting documents inside a subcollection one by one
+        for doc in docs:
+            batch.delete(doc.reference)
+            deleted_count += 1
+            
+        if deleted_count > 0:
+            batch.commit()
+            
+        print(f"🗑️ Deleted {deleted_count} passkey(s) for user {user_id}")
+        return {"status": "success", "message": "Passkeys removed successfully"}
+    except Exception as e:
+        print(f"❌ Error removing passkeys: {e}")
+        raise HTTPException(status_code=500, detail="Failed to remove passkeys")
+
+
+
+
+
 
 @app.get("/api/auth/google/login")
 async def google_login(user_id: str):
@@ -2952,50 +3009,7 @@ from google.cloud import firestore
 # Ensure you have your parse_iso helper available here
 
 
-@app.get("/api/analytics/summary/{user_id}")
-async def get_analytics_summary(user_id: str):
-    """
-    Powers the Productivity Dashboard. Returns global debt ledgers 
-    and specifically highlights the highest-risk tasks.
-    """
-    try:
-        # 1. Fetch Global Ledgers
-        user_doc = db.collection("users").document(user_id).get()
-        user_data = user_doc.to_dict() if user_doc.exists else {}
-        
-        total_time_debt = user_data.get("total_time_debt", 0)
-        sunk_time_debt = user_data.get("sunk_time_debt", 0)
-        
-        # 2. Fetch and Score Pending Tasks
-        tasks_ref = db.collection("users").document(user_id).collection("raw_tasks")
-        
-        scored_tasks = []
-        for status in ["pending", "scheduled"]:
-            for doc in tasks_ref.where("status", "==", status).stream():
-                t_data = doc.to_dict()
-                t_data["risk_score"] = calculate_risk_score(t_data, total_time_debt)
-                scored_tasks.append(t_data)
-                
-        # Sort by highest risk first
-        scored_tasks.sort(key=lambda x: x.get("risk_score", 0), reverse=True)
-        
-        # Filter for only tasks that are actually in danger (e.g., > 40% risk)
-        high_risk_tasks = [t for t in scored_tasks if t.get("risk_score", 0) >= 40]
-        
-        return {
-            "status": "success",
-            "metrics": {
-                "active_time_debt_mins": total_time_debt,
-                "sunk_time_debt_mins": sunk_time_debt,
-                "total_pending_tasks": len(scored_tasks)
-            },
-            "high_risk_tasks": high_risk_tasks[:5] # Only return the top 5 most dangerous tasks
-        }
-        
-    except Exception as e:
-        print(f"❌ [Analytics Error] {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+
 
 import datetime as dt
 from datetime import timezone
@@ -3172,6 +3186,7 @@ async def get_task_risk(task: TaskRiskRequest):
         print(f"[AI Inference Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from collections import defaultdict
 
 @app.get("/api/analytics/dashboard/{user_id}")
 async def get_master_dashboard_data(user_id: str):
@@ -3180,8 +3195,6 @@ async def get_master_dashboard_data(user_id: str):
 
     try:
         now_dt = dt.datetime.now(timezone.utc)
-        
-        # --- THE FIX: DYNAMIC TIMEZONE ---
         user_tz = get_user_timezone(user_id)
         now_local = now_dt.astimezone(user_tz)
         
@@ -3201,30 +3214,83 @@ async def get_master_dashboard_data(user_id: str):
         for t in all_tasks:
             due_dt = parse_iso(t.get("due_date"))
             if due_dt:
-                # Group by user's local day
                 local_due = due_dt.astimezone(user_tz)
                 tasks_per_day[local_due.strftime("%Y-%m-%d")] += 1
 
         pending_tasks, completed_tasks, missed_tasks = [], [], []
+        completed_events_count, missed_events_count = 0, 0
         completed_routines, missed_routines = 0, 0
-        time_refunded = 0
-        energy_counts = {"high": 0, "medium": 0, "low": 0}
         
-        last_7_days = [(now_local - dt.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
-        trend_data_dict = {day: 0 for day in last_7_days}
-
+        time_refunded = 0
+        weekly_snoozes = 0
+        
+        energy_counts = {"high": 0, "medium": 0, "low": 0}
         priority_completions = {"high": 0, "medium": 0, "low": 0} 
         hour_distribution = {h: 0 for h in range(24)}
         friction_hours_list = []
+        
+        # Category tracking for the new line chart
+        category_stats = defaultdict(lambda: {"scheduled": 0, "completed": 0})
+        
+        # Setup the dual-color trend data structure
+        last_7_days = [(now_local - dt.timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+        trend_data_dict = {day: {"tasks": 0, "events": 0} for day in last_7_days}
 
+        # --- PROCESS EVENTS ---
+        for event in all_events:
+            status = event.get("completion_status", "pending")
+            category = event.get("category", "MEETING")
+            
+            category_stats[category]["scheduled"] += 1
+            
+            # 1. Refund Math
+            if status == "completed" and event.get("is_reclaimed_debt"):
+                start_dt = parse_iso(event.get("start"))
+                end_dt = parse_iso(event.get("end"))
+                if start_dt and end_dt:
+                    duration = int((end_dt - start_dt).total_seconds() / 60)
+                    time_refunded += max(0, duration)
+
+            # 2. Routine Math
+            if event.get("is_perishable"): 
+                if status == "completed": completed_routines += 1
+                elif status == "missed": missed_routines += 1
+                
+            # 3. Standard Event Math
+            if status == "completed":
+                completed_events_count += 1
+                category_stats[category]["completed"] += 1
+                comp_dt = parse_iso(event.get("completed_at"))
+                if comp_dt:
+                    local_comp = comp_dt.astimezone(user_tz)
+                    comp_str = local_comp.strftime("%Y-%m-%d")
+                    if comp_str in trend_data_dict:
+                        trend_data_dict[comp_str]["events"] += 1
+            elif status == "missed":
+                missed_events_count += 1
+                
+            # 4. Weekly Snooze Math
+            event_start = parse_iso(event.get("start"))
+            if event_start:
+                local_start = event_start.astimezone(user_tz)
+                # If it's scheduled for this week (or completed this week)
+                if (now_local - dt.timedelta(days=7)).date() <= local_start.date() <= (now_local + dt.timedelta(days=7)).date():
+                    weekly_snoozes += int(event.get("snooze_count") or 0)
+
+        # --- PROCESS TASKS ---
         for task in all_tasks:
             status = task.get("status")
             raw_energy = task.get("energy_level")
             clean_energy = {"low": 1, "medium": 2, "high": 3}.get(str(raw_energy).lower(), 2) if isinstance(raw_energy, str) else int(raw_energy) if isinstance(raw_energy, (int, float)) else 2
-
+            
+            due_dt = parse_iso(task.get("due_date"))
+            if due_dt:
+                local_due = due_dt.astimezone(user_tz)
+                if (now_local - dt.timedelta(days=7)).date() <= local_due.date() <= (now_local + dt.timedelta(days=7)).date():
+                    weekly_snoozes += int(task.get("snooze_count") or 0)
+            
             if status == "completed":
                 completed_tasks.append(task)
-                time_refunded += (task.get("estimated_duration") or 60)
                 
                 if clean_energy == 3: energy_counts["high"] += 1
                 elif clean_energy == 1: energy_counts["low"] += 1
@@ -3234,11 +3300,10 @@ async def get_master_dashboard_data(user_id: str):
                 create_dt = parse_iso(task.get("created_at"))
 
                 if comp_dt:
-                    # Convert to local time for accurate chronotype tracking
                     local_comp = comp_dt.astimezone(user_tz)
                     comp_str = local_comp.strftime("%Y-%m-%d")
                     if comp_str in trend_data_dict:
-                        trend_data_dict[comp_str] += 1
+                        trend_data_dict[comp_str]["tasks"] += 1
                     
                     hour_distribution[local_comp.hour] += 1
                     
@@ -3257,18 +3322,12 @@ async def get_master_dashboard_data(user_id: str):
                 task["clean_energy"] = clean_energy
                 pending_tasks.append(task)
 
-        for event in all_events:
-            if event.get("is_perishable"): 
-                if event.get("completion_status") == "completed": completed_routines += 1
-                elif event.get("completion_status") == "missed": missed_routines += 1
-
+        # --- RISK SCORING ---
         scored_pending_tasks = []
         total_risk = 0
         for task in pending_tasks:
             due_dt = parse_iso(task.get("due_date")) or now_dt
             created_dt = parse_iso(task.get("created_at")) or now_dt
-            
-            # Predict risk based on local timezone equivalents
             local_due_dt = due_dt.astimezone(user_tz)
             
             ai_payload = {
@@ -3290,7 +3349,7 @@ async def get_master_dashboard_data(user_id: str):
                 task["ai_explanations"] = ai_result["explanations"]
                 total_risk += task["risk_score"]
                 scored_pending_tasks.append(task)
-            except Exception as e:
+            except Exception:
                 pass
 
         avg_friction = (sum(friction_hours_list) / len(friction_hours_list)) if friction_hours_list else 0
@@ -3300,10 +3359,19 @@ async def get_master_dashboard_data(user_id: str):
         scored_pending_tasks.sort(key=lambda x: (x.get("risk_score") or 0), reverse=True)
         danger_zone = [t for t in scored_pending_tasks if (t.get("risk_score") or 0) >= 65][:3] 
         avg_risk = (total_risk / len(scored_pending_tasks)) if scored_pending_tasks else 0
+        
+        # Completion Rates
         total_tasks_ever = len(completed_tasks) + len(missed_tasks)
         task_completion_rate = (len(completed_tasks) / total_tasks_ever * 100) if total_tasks_ever > 0 else 0
+        
+        total_events_ever = completed_events_count + missed_events_count
+        event_completion_rate = (completed_events_count / total_events_ever * 100) if total_events_ever > 0 else 0
+        
         total_routines = completed_routines + missed_routines
         routine_adherence = (completed_routines / total_routines * 100) if total_routines > 0 else 0
+
+        # Format trend data as an array of objects
+        formatted_trend_data = [{"date": day, "tasks": data["tasks"], "events": data["events"]} for day, data in trend_data_dict.items()]
 
         return {
             "status": "success",
@@ -3313,6 +3381,7 @@ async def get_master_dashboard_data(user_id: str):
                 "time_refunded_mins": time_refunded
             },
             "procrastination_profile": most_avoided,
+            "weekly_snoozes": weekly_snoozes,
             "risk_forecast": {
                 "average_risk_score": int(avg_risk),
                 "danger_zone": danger_zone
@@ -3320,8 +3389,9 @@ async def get_master_dashboard_data(user_id: str):
             "energy_analytics": energy_counts,
             "completion_funnel": {
                 "task_completion_rate": task_completion_rate,
+                "event_completion_rate": event_completion_rate,
                 "routine_adherence": routine_adherence,
-                "trend_data": list(trend_data_dict.values())
+                "trend_data": formatted_trend_data
             },
             "advanced_metrics": {
                 "priority_alignment": priority_completions,
@@ -3329,7 +3399,8 @@ async def get_master_dashboard_data(user_id: str):
                     "peak_hour": peak_hour,
                     "distribution": list(hour_distribution.values())
                 },
-                "task_friction_hours": int(avg_friction)
+                "task_friction_hours": int(avg_friction),
+                "category_stats": dict(category_stats)
             }
         }
 
@@ -3337,87 +3408,6 @@ async def get_master_dashboard_data(user_id: str):
         print(f"[Master Dashboard Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-# @app.post("/api/calendar/reschedule_debt/{user_id}")
-# async def fetch_reschedulable_debt(user_id: str):
-#     """
-#     Scoops up non-perishable missed tasks/events and calculates
-#     exact remaining durations for the AI Optimiser.
-#     """
-#     try:
-#         events_ref = db.collection("users").document(user_id).collection("raw_events")
-#         tasks_ref = db.collection("users").document(user_id).collection("raw_tasks")
-        
-#         reschedule_queue = []
-#         processed_task_ids = set()
-        
-#         for doc in events_ref.where("completion_status", "==", "missed").stream():
-#             event = doc.to_dict()
-#             if event.get("is_perishable") == True:
-#                 continue
-                
-#             parent_id = event.get("parent_task_id")
-            
-#             if not parent_id:
-#                 start_dt = parse_iso(event.get("start"))
-#                 end_dt = parse_iso(event.get("end"))
-#                 duration = 60
-#                 if start_dt and end_dt:
-#                     duration = int((end_dt - start_dt).total_seconds() / 60)
-                    
-#                 reschedule_queue.append({
-#                     "id": doc.id,
-#                     "title": event.get("title", "Missed Event"),
-#                     "duration": duration,
-#                     "priority": 1, 
-#                     "original_type": "event"
-#                 })
-
-#         for doc in tasks_ref.where("status", "==", "missed").stream():
-#             task = doc.to_dict()
-#             if task.get("is_perishable") == True:
-#                 continue
-                
-#             task_id = doc.id
-#             processed_task_ids.add(task_id)
-            
-#             base_duration = task.get("estimated_duration") or 60
-            
-#             completed_mins = 0
-#             linked_evs = task.get("linked_event_ids", [])
-            
-#             if linked_evs:
-#                 for eid in linked_evs:
-#                     edoc = events_ref.document(eid).get()
-#                     if edoc.exists:
-#                         edata = edoc.to_dict()
-#                         if edata.get("completion_status") == "completed":
-#                             es = parse_iso(edata.get("start"))
-#                             ee = parse_iso(edata.get("end"))
-#                             if es and ee:
-#                                 completed_mins += int((ee - es).total_seconds() / 60)
-                                
-#             remaining_duration = max(0, base_duration - completed_mins)
-            
-#             if remaining_duration > 0:
-#                 reschedule_queue.append({
-#                     "id": task_id,
-#                     "title": task.get("title", "Missed Task"),
-#                     "duration": remaining_duration,
-#                     "priority": 1,
-#                     "original_type": "task"
-#                 })
-                
-#         return {
-#             "status": "success",
-#             "items_to_schedule": reschedule_queue,
-#             "total_items": len(reschedule_queue)
-#         }
-        
-#     except Exception as e:
-#         print(f"[Auto-Rescheduler Error] {e}")
-#         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/analytics/sweep/{user_id}")
 async def run_time_debt_sweeper(user_id: str):
@@ -3634,29 +3624,28 @@ async def commit_reschedule_debt(req: RescheduleCommitRequest):
     events = req.events
 
     try:
-        # Filter out only the newly generated catch-up blocks
         debt_ghosts = [e for e in events if e.get("is_ghost") and e.get("id", "").startswith("ghost_debt_")]
         if not debt_ghosts:
-            print("⚠️ No valid debt ghosts found in payload.")
             return {"status": "success", "refunded_mins": 0}
 
-        print(f"💾 Saving {len(debt_ghosts)} reclaimed blocks to database...")
         batch = db.batch()
         events_ref = db.collection("users").document(user_id).collection("raw_events")
         tasks_ref = db.collection("users").document(user_id).collection("raw_tasks")
         user_ref = db.collection("users").document(user_id)
         
         total_refund = 0
-        task_updates = {} # Aggregates multiple chunks belonging to the same task
+        task_updates = {} 
 
         for ghost in debt_ghosts:
             ghost_dur = ghost.pop("debt_duration", 0)
             orig_task_id = ghost.get("linked_task_id")
             orig_event_id = ghost.get("linked_event_id")
 
-            # 1. Clean the ghost and save it as a real event
+            # 1. Clean the ghost and inject the permanent tracking flag
             ghost.pop("is_ghost", None)
             ghost.pop("id", None)
+            ghost["is_reclaimed_debt"] = True # <-- THE VITAL FIX
+            
             new_event_ref = events_ref.document()
             batch.set(new_event_ref, ghost)
 
@@ -3669,18 +3658,15 @@ async def commit_reschedule_debt(req: RescheduleCommitRequest):
                 
             elif orig_event_id and not orig_event_id.startswith("orphan_"):
                 event_doc = events_ref.document(orig_event_id)
-                # Setting debt_applied to False protects it from the Sweeper 
-                # immediately marking it as missed again
                 batch.update(event_doc, {
                     "debt_applied": False, 
                     "snooze_count": firestore.Increment(1)
                 })
                 total_refund += ghost_dur
             else:
-                # It's an orphan block; just refund the global debt
                 total_refund += ghost_dur
 
-        # 3. Apply batched task updates (Using ArrayUnion to safely append IDs)
+        # 3. Apply batched task updates
         for task_id, new_event_ids in task_updates.items():
             task_doc = tasks_ref.document(task_id)
             batch.update(task_doc, {
@@ -3695,20 +3681,15 @@ async def commit_reschedule_debt(req: RescheduleCommitRequest):
             user_doc_snap = user_ref.get()
             if user_doc_snap.exists:
                 current_debt = user_doc_snap.to_dict().get("total_time_debt", 0)
-                # Floor it at 0 just in case
                 new_debt = max(0, current_debt - total_refund)
                 batch.update(user_ref, {"total_time_debt": new_debt})
-                print(f"💰 Global Debt reduced by {total_refund} mins. New total: {new_debt}")
 
         batch.commit()
-        print("✅ Commit successful.")
-        print("="*60 + "\n")
         return {"status": "success", "refunded_mins": total_refund}
 
     except Exception as e:
         print(f"❌ [Commit Error] {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
+        raise HTTPException(status_code=500, detail=str(e)) 
 
 
 

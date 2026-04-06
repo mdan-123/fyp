@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import NavigationBar from "@/components/NavigationBar";
@@ -45,16 +45,28 @@ const AnimationsLoader = () => (
   `}</style>
 );
 
+interface TrendData {
+  date: string;
+  tasks: number;
+  events: number;
+}
+
+interface CategoryStat {
+  scheduled: number;
+  completed: number;
+}
+
 interface DashboardData {
   core_ledgers: { active_debt_mins: number; sunk_debt_mins: number; time_refunded_mins: number };
   procrastination_profile: any[];
   risk_forecast: { average_risk_score: number; danger_zone: any[] };
   energy_analytics: { high: number; medium: number; low: number };
-  completion_funnel: { task_completion_rate: number; routine_adherence: number; trend_data: number[] };
+  completion_funnel: { task_completion_rate: number; event_completion_rate: number; routine_adherence: number; trend_data: TrendData[] };
   advanced_metrics: {
     priority_alignment: { high: number; medium: number; low: number };
     peak_action_window: { peak_hour: number; distribution: number[] };
     task_friction_hours: number;
+    category_stats: Record<string, CategoryStat>;
   };
 }
 
@@ -219,21 +231,109 @@ function EnergyDonut({ high, medium, low }: { high: number; medium: number; low:
   );
 }
 
-function TrendBarChart({ data }: { data: number[] }) {
-  const max = Math.max(...data, 5);
+// ─── NEW: Interactive Dual-Color Stacked Bar Chart ────────────────
+function InteractiveTrendChart({ data }: { data: TrendData[] }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  
+  // Find the highest combined total to scale the chart properly
+  const max = Math.max(...data.map(d => d.tasks + d.events), 5);
+
   return (
-    <div className="relative w-full h-40 flex items-end justify-between gap-2 sm:gap-4 mt-2">
-      {data.map((val, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center group h-full justify-end relative">
-          <span className="absolute -top-6 text-[10px] font-black opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--color-accent-primary)" }}>{val}</span>
+    <div className="relative w-full h-44 flex items-end justify-between gap-1 sm:gap-3 mt-4 px-1">
+      {data.map((d, i) => {
+        const total = d.tasks + d.events;
+        const taskPct = total === 0 ? 0 : (d.tasks / total);
+        const heightPct = Math.max((total / max) * 100, 4); // 4% minimum height so empty days show a tiny bump
+
+        return (
           <div 
-            className="w-full max-w-[32px] rounded-t-md relative transition-all duration-700 ease-out group-hover:brightness-125" 
-            style={{ height: `${Math.max((val / max) * 100, 5)}%`, background: "var(--color-bg-subtle)" }}
+            key={i} 
+            onMouseEnter={() => setActiveIndex(i)}
+            onMouseLeave={() => setActiveIndex(null)}
+            onClick={() => setActiveIndex(activeIndex === i ? null : i)}
+            className="flex-1 flex flex-col items-center justify-end h-full relative cursor-pointer group"
           >
-            <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-md transition-colors duration-500" style={{ background: "var(--color-accent-primary)" }}></div>
+            {/* Interactive Tooltip */}
+            <div 
+              className={`absolute -top-14 z-20 flex flex-col items-center transition-all duration-200 ${activeIndex === i ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
+            >
+              <div 
+                className="px-3 py-2 rounded-xl shadow-lg flex flex-col gap-1 min-w-[80px]"
+                style={{ background: "var(--color-bg-glass-strong)", border: "1px solid var(--color-border)", backdropFilter: "blur(12px)" }}
+              >
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span style={{ color: "var(--color-accent-primary)" }}>Tasks</span>
+                  <span style={{ color: "var(--color-text-primary)" }}>{d.tasks}</span>
+                </div>
+                <div className="flex justify-between items-center text-[10px] font-bold">
+                  <span style={{ color: "var(--color-info)" }}>Events</span>
+                  <span style={{ color: "var(--color-text-primary)" }}>{d.events}</span>
+                </div>
+              </div>
+              <div className="w-2 h-2 rotate-45 -mt-1" style={{ background: "var(--color-bg-glass-strong)", borderBottom: "1px solid var(--color-border)", borderRight: "1px solid var(--color-border)" }} />
+            </div>
+
+            {/* Stacked Bar container */}
+            <div 
+              className={`w-full max-w-[32px] relative transition-all duration-300 ease-out overflow-hidden ${activeIndex === i ? 'brightness-125 scale-y-[1.02]' : 'group-hover:brightness-110'}`} 
+              style={{ 
+                height: `${heightPct}%`, 
+                background: total === 0 ? "var(--color-bg-subtle)" : "transparent",
+                borderRadius: "6px"
+              }}
+            >
+              {total > 0 && (
+                <>
+                  {/* Events Section (Top - Cyan/Info) */}
+                  <div 
+                    className="absolute top-0 left-0 w-full transition-all duration-500" 
+                    style={{ height: `${(1 - taskPct) * 100}%`, background: "var(--color-info)" }}
+                  />
+                  {/* Tasks Section (Bottom - Indigo/Primary) */}
+                  <div 
+                    className="absolute bottom-0 left-0 w-full transition-all duration-500" 
+                    style={{ height: `${taskPct * 100}%`, background: "var(--color-accent-primary)" }}
+                  />
+                </>
+              )}
+            </div>
+            
+            {/* Day Label */}
+            <span className="text-[9px] font-bold uppercase tracking-widest mt-3 transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>
+              {new Date(d.date).toLocaleDateString("en-US", { weekday: "short" })}
+            </span>
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── NEW: Category Progress Stats ──────────────────────────────────
+function CategoryStatsLine({ category, scheduled, completed }: { category: string; scheduled: number; completed: number }) {
+  const isComplete = scheduled > 0 && completed >= scheduled;
+  const progressPct = scheduled === 0 ? 0 : Math.min((completed / scheduled) * 100, 100);
+  
+  // Dynamic color: Green if finished, Indigo if in progress, Gray if zero
+  const barColor = isComplete ? "var(--color-success)" : scheduled === 0 ? "var(--color-border-subtle)" : "var(--color-accent-primary)";
+  
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between items-end">
+        <span className="text-[11px] font-bold uppercase tracking-widest transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>
+          {category.replace("_", " ")}
+        </span>
+        <div className="flex items-baseline gap-1">
+          <span className="text-sm font-black transition-colors duration-200" style={{ color: barColor }}>{completed}</span>
+          <span className="text-[10px] font-bold transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>/ {scheduled}</span>
         </div>
-      ))}
+      </div>
+      <div className="h-1.5 w-full rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
+        <div 
+          className="h-full rounded-full risk-bar transition-all duration-500" 
+          style={{ width: `${progressPct}%`, background: barColor }} 
+        />
+      </div>
     </div>
   );
 }
@@ -400,19 +500,18 @@ export default function AnalyticsPage() {
   const maxSnooze = Math.max(...procrastination_profile.map((t) => t.snooze_count || 0), 1);
   const totalPriority = advanced_metrics.priority_alignment.high + advanced_metrics.priority_alignment.medium + advanced_metrics.priority_alignment.low || 1;
 
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    return d.toLocaleDateString("en-US", { weekday: "short" });
-  });
+  // Ensure category_stats exists as an object even if backend returned empty
+  const categoryStats = advanced_metrics.category_stats || {};
+  const sortedCategories = Object.entries(categoryStats).sort((a, b) => b[1].scheduled - a[1].scheduled);
 
   return (
     <>
       <AnimationsLoader />
-      <div className="min-h-screen font-sans pb-28 relative transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
+      {/* THE FIX: Increased padding-bottom to pb-36 to guarantee clearance 
+        above the mobile Navigation Bar. 
+      */}
+      <div className="min-h-screen font-sans pb-36 relative transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
         
-        {/* Decorative Glowing Orbs managed purely by global CSS before element now, so we remove the hardcoded blurs here */}
-
         <div className="relative z-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 card-reveal" style={{ paddingTop: "calc(env(safe-area-inset-top, 24px) + 24px)", paddingBottom: "24px" }}>
             <div>
@@ -444,6 +543,7 @@ export default function AnalyticsPage() {
             <StatCard label="Refunded" value={formatTime(core_ledgers.time_refunded_mins)} sub="Successfully paid back" accent="var(--color-success)" delay={0.2} />
           </div>
 
+          {/* Top Funnel Row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <GlassCard delay={0.2} className="flex flex-col justify-center py-4">
               <SectionLabel>Task Friction</SectionLabel>
@@ -549,35 +649,58 @@ export default function AnalyticsPage() {
           </GlassCard>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <GlassCard delay={0.4} className="flex flex-col">
-              <SectionLabel>Energy Burn</SectionLabel>
-              <div className="flex-1 flex items-center justify-center py-4">
-                <EnergyDonut high={energy_analytics.high} medium={energy_analytics.medium} low={energy_analytics.low} />
-              </div>
-            </GlassCard>
-
-            <GlassCard delay={0.45} className="flex flex-col justify-center">
-              <SectionLabel>Completion Rates</SectionLabel>
-              <div className="space-y-8 mt-4">
+            
+            {/* The Funnel With 3 Elements Now */}
+            <GlassCard delay={0.4} className="flex flex-col justify-center">
+              <SectionLabel>Completion Funnel</SectionLabel>
+              <div className="space-y-6 mt-2">
+                {/* Tasks */}
                 <div>
-                  <div className="flex justify-between items-baseline mb-2">
-                    <span className="text-xs font-bold uppercase transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Tasks</span>
-                    <span className="text-2xl font-black transition-colors duration-200" style={{ color: "var(--color-accent-primary)" }}>{Math.round(completion_funnel.task_completion_rate)}%</span>
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span className="text-[10px] font-bold uppercase transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Tasks</span>
+                    <span className="text-lg font-black transition-colors duration-200" style={{ color: "var(--color-accent-primary)" }}>{Math.round(completion_funnel.task_completion_rate)}%</span>
                   </div>
-                  <div className="h-2.5 rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
+                  <div className="h-2 rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
                     <div className="h-full rounded-full risk-bar transition-colors duration-500" style={{ width: `${completion_funnel.task_completion_rate}%`, background: "var(--color-accent-primary)" }} />
                   </div>
                 </div>
+                {/* Events */}
                 <div>
-                  <div className="flex justify-between items-baseline mb-2">
-                    <span className="text-xs font-bold uppercase transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Routines</span>
-                    <span className="text-2xl font-black transition-colors duration-200" style={{ color: "var(--color-info)" }}>{Math.round(completion_funnel.routine_adherence)}%</span>
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span className="text-[10px] font-bold uppercase transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Events</span>
+                    <span className="text-lg font-black transition-colors duration-200" style={{ color: "var(--color-info)" }}>{Math.round(completion_funnel.event_completion_rate)}%</span>
                   </div>
-                  <div className="h-2.5 rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
-                    <div className="h-full rounded-full risk-bar transition-colors duration-500" style={{ width: `${completion_funnel.routine_adherence}%`, background: "var(--color-info)" }} />
+                  <div className="h-2 rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
+                    <div className="h-full rounded-full risk-bar transition-colors duration-500" style={{ width: `${completion_funnel.event_completion_rate}%`, background: "var(--color-info)" }} />
+                  </div>
+                </div>
+                {/* Routines */}
+                <div>
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span className="text-[10px] font-bold uppercase transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Routines</span>
+                    <span className="text-lg font-black transition-colors duration-200" style={{ color: "var(--color-success)" }}>{Math.round(completion_funnel.routine_adherence)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden transition-colors duration-500" style={{ background: "var(--color-border-subtle)" }}>
+                    <div className="h-full rounded-full risk-bar transition-colors duration-500" style={{ width: `${completion_funnel.routine_adherence}%`, background: "var(--color-success)" }} />
                   </div>
                 </div>
               </div>
+            </GlassCard>
+
+            {/* Event Category Tracker */}
+            <GlassCard delay={0.45} className="flex flex-col">
+              <SectionLabel>Category Progress</SectionLabel>
+              {sortedCategories.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center gap-2">
+                  <p className="text-sm font-bold transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>No events scheduled</p>
+                </div>
+              ) : (
+                <div className="space-y-4 mt-2 max-h-[180px] overflow-y-auto scrollbar-hide">
+                  {sortedCategories.map(([cat, stats]) => (
+                    <CategoryStatsLine key={cat} category={cat} scheduled={stats.scheduled} completed={stats.completed} />
+                  ))}
+                </div>
+              )}
             </GlassCard>
 
             <GlassCard delay={0.5} className="flex flex-col">
@@ -618,14 +741,16 @@ export default function AnalyticsPage() {
             </GlassCard>
           </div>
 
-          <GlassCard delay={0.55}>
+          <GlassCard delay={0.55} className="mb-6">
             <SectionLabel>7-Day Completion Trend</SectionLabel>
-            <TrendBarChart data={completion_funnel.trend_data} />
-            <div className="flex justify-between mt-4 px-1">
-              {days.map((d) => (
-                <span key={d} className="flex-1 text-center text-[10px] font-bold uppercase tracking-widest transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>{d}</span>
-              ))}
+            
+            {/* Legend for the dual colors */}
+            <div className="flex gap-4 mb-2 justify-end text-[10px] font-bold uppercase tracking-widest">
+              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--color-accent-primary)" }}></div><span style={{ color: "var(--color-text-secondary)" }}>Tasks</span></div>
+              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--color-info)" }}></div><span style={{ color: "var(--color-text-secondary)" }}>Events</span></div>
             </div>
+
+            <InteractiveTrendChart data={completion_funnel.trend_data} />
           </GlassCard>
 
         </div>
