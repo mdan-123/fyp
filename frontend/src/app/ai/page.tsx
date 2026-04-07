@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import NavigationBar from "@/components/NavigationBar";
 import { fetchWithRetry } from "@/lib/fetchUtils";
-import { useSpeech } from "@/lib/useSpeech"; 
+import { useSpeech } from "@/lib/useSpeech";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -12,29 +12,41 @@ const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 type MessageRole = "user" | "assistant";
 type MessageStatus = "success" | "error" | "clarification_needed" | "loading";
 
+export interface Candidate {
+  id: string;
+  title: string;
+  start?: string;
+  end?: string;
+  location?: string;
+  description?: string;
+  due_date?: string;
+  status?: string;
+}
+
 interface ClarificationPayload {
   clarification_type: "ambiguous_match" | "slot_conflict";
-  candidates?:      string[];
-  query?:           string;
-  entity_key?:      string;
+  candidates?: Candidate[];
+  query?: string;
+  entity_key?: string;
   requested_start?: string;
-  requested_end?:   string;
+  requested_end?: string;
   suggested_start?: string;
-  suggested_end?:   string;
-  title?:           string;
-  original_intent?:   string;
+  suggested_end?: string;
+  title?: string;
+  original_intent?: string;
   original_entities?: Record<string, any>;
-  original_text?:     string;
+  original_text?: string;
 }
 
 interface Message {
-  id:             string;
-  role:           MessageRole;
-  content:        string;
-  status:         MessageStatus;
-  timestamp:      string;
+  id: string;
+  role: MessageRole;
+  content: string;
+  status: MessageStatus;
+  timestamp: string;
   clarification?: ClarificationPayload;
-  resolved?:      boolean;
+  resolved?: boolean;
+  feedback?: "positive" | "negative";
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -63,14 +75,14 @@ const formatSlotTime = (iso?: string) => {
 const TypingDots = () => (
   <div className="flex items-center gap-1.5 px-1 py-1">
     {[0, 0.15, 0.3].map((d) => (
-      <span 
-        key={`dot-${d}`} 
+      <span
+        key={`dot-${d}`}
         className="w-2 h-2 rounded-full animate-pulse transition-colors duration-200"
-        style={{ 
-          background: "var(--color-accent-primary)", 
+        style={{
+          background: "var(--color-accent-primary)",
           animationDelay: `${d}s`,
           opacity: 0.7
-        }} 
+        }}
       />
     ))}
   </div>
@@ -82,23 +94,36 @@ function MessageBubble({
   onCandidateSelect,
   onSlotConfirm,
   onSlotCancel,
+  onFeedbackRequest,
 }: Readonly<{
   msg: Message;
-  onCandidateSelect: (candidate: string, cl: ClarificationPayload) => void;
-  onSlotConfirm:     (cl: ClarificationPayload) => void;
-  onSlotCancel:      () => void;
+  onCandidateSelect: (candidateId: string, cl: ClarificationPayload) => void;
+  onSlotConfirm: (cl: ClarificationPayload) => void;
+  onSlotCancel: () => void;
+  onFeedbackRequest: (msgId: string, rating: "positive" | "negative") => void;
 }>) {
   const isUser = msg.role === "user";
   const isLoading = msg.status === "loading";
 
+  const thumbUpActive = msg.feedback === "positive";
+  const thumbDownActive = msg.feedback === "negative";
+
+  const thumbUpClass = thumbUpActive
+    ? "text-emerald-500 fill-emerald-500 stroke-transparent"
+    : "text-slate-400 dark:text-slate-500 fill-current dark:fill-transparent stroke-transparent dark:stroke-current stroke-2 hover:text-emerald-500 dark:hover:text-emerald-500";
+
+  const thumbDownClass = thumbDownActive
+    ? "text-red-500 fill-red-500 stroke-transparent"
+    : "text-slate-400 dark:text-slate-500 fill-current dark:fill-transparent stroke-transparent dark:stroke-current stroke-2 hover:text-red-500 dark:hover:text-red-500";
+
   return (
     <div className={`animate-fade-in-up flex w-full mb-3 ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[82%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
-        
+      <div className={`max-w-[85%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
+
         {/* Avatar for assistant */}
         {!isUser && (
           <div className="flex items-center gap-2 mb-1">
-            <div 
+            <div
               className="w-6 h-6 rounded-lg flex items-center justify-center transition-colors duration-500"
               style={{
                 background: "var(--color-accent-gradient)",
@@ -128,6 +153,33 @@ function MessageBubble({
           {isLoading ? <TypingDots /> : <p style={{ whiteSpace: "pre-wrap" }}>{msg.content}</p>}
         </div>
 
+        {/* Feedback Icons */}
+        {!isUser && !isLoading && !msg.clarification && (
+          <div className="flex items-center gap-3 px-2 mt-1">
+            <button
+              onClick={() => onFeedbackRequest(msg.id, "positive")}
+              className={`transition-colors duration-200 ${thumbUpClass}`}
+              title="Helpful response"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+              </svg>
+            </button>
+            <button
+              onClick={() => onFeedbackRequest(msg.id, "negative")}
+              className={`transition-colors duration-200 ${thumbDownClass}`}
+              title="Unhelpful response"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"></path>
+              </svg>
+            </button>
+            <span className="text-[10px] font-medium transition-colors duration-200 ml-auto" style={{ color: "var(--color-text-tertiary)" }}>
+              {formatTime(msg.timestamp)}
+            </span>
+          </div>
+        )}
+
         {/* clarification UI */}
         {msg.clarification && !msg.resolved && (
           <div
@@ -141,21 +193,33 @@ function MessageBubble({
             {msg.clarification.clarification_type === "ambiguous_match" && (
               <>
                 <p className="text-[10px] tracking-widest uppercase mb-3 font-semibold transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>
-                  Select one:
+                  I found multiple matches. Please select one:
                 </p>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   {(msg.clarification.candidates ?? []).map((c) => (
                     <button
-                      key={c}
-                      onClick={() => onCandidateSelect(c, msg.clarification!)}
-                      className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98] hover:scale-[1.01]"
+                      key={c.id}
+                      onClick={() => onCandidateSelect(c.id, msg.clarification!)}
+                      className="w-full text-left px-4 py-3 rounded-xl transition-all active:scale-[0.98] hover:scale-[1.01] flex flex-col gap-1"
                       style={{
                         background: "var(--color-surface)",
                         border: "1px solid var(--color-border)",
-                        color: "var(--color-text-secondary)",
+                        boxShadow: "var(--shadow-sm)",
                       }}
                     >
-                      {c}
+                      <span className="text-sm font-semibold transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>
+                        {c.title || "Untitled"}
+                      </span>
+                      {(c.start || c.due_date) && (
+                        <span className="text-[11px] font-medium transition-colors duration-200" style={{ color: "var(--color-accent-primary)" }}>
+                          {formatSlotTime(c.start || c.due_date)}
+                        </span>
+                      )}
+                      {c.description && (
+                        <span className="text-xs truncate transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>
+                          {c.description}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -191,10 +255,12 @@ function MessageBubble({
           </div>
         )}
 
-        {/* timestamp */}
-        <span className="text-[10px] px-1 font-medium transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>
-          {formatTime(msg.timestamp)}
-        </span>
+        {/* Default timestamp if no feedback row is rendered */}
+        {(isUser || isLoading || msg.clarification) && (
+          <span className="text-[10px] px-1 font-medium transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>
+            {formatTime(msg.timestamp)}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -205,13 +271,22 @@ export default function ChatPage() {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
 
-  const [messages,      setMessages]      = useState<Message[]>([]);
-  const [input,         setInput]         = useState("");
-  const [isSending,     setIsSending]     = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
-  const bottomRef  = useRef<HTMLDivElement>(null);
-  const inputRef   = useRef<HTMLTextAreaElement>(null);
+  // Feedback Modal State
+  const [feedbackModal, setFeedbackModal] = useState<{
+    isOpen: boolean;
+    msgId: string;
+    rating: "positive" | "negative";
+    promptText: string;
+    responseText: string;
+  } | null>(null);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Speech Recognition
   const { isListening, transcript, startListening, stopListening } = useSpeech();
@@ -241,12 +316,12 @@ export default function ChatPage() {
       if (res.ok) {
         const data = await res.json();
         const loaded: Message[] = (data.history ?? []).map((h: any) => ({
-          id:        h.id,
-          role:      h.role as MessageRole,
-          content:   h.content,
-          status:    "success" as MessageStatus,
+          id: h.id,
+          role: h.role as MessageRole,
+          content: h.content,
+          status: "success" as MessageStatus,
           timestamp: h.timestamp,
-          resolved:  true,   
+          resolved: true,
         }));
         setMessages(loaded);
       }
@@ -259,7 +334,7 @@ export default function ChatPage() {
 
   // ── Core send function ─────────────────────────────────────────
   const sendMessage = async (
-    text:          string,
+    text: string,
     intentOverride?: string,
     entityOverrides?: Record<string, any>,
     resolveMessageId?: string,
@@ -267,19 +342,19 @@ export default function ChatPage() {
     if (!userId || (!text.trim() && !intentOverride)) return;
 
     const userMsg: Message = {
-      id:        generateId(),
-      role:      "user",
-      content:   text,
-      status:    "success",
+      id: generateId(),
+      role: "user",
+      content: text,
+      status: "success",
       timestamp: new Date().toISOString(),
     };
 
     const loadingId = generateId();
     const loadingMsg: Message = {
-      id:        loadingId,
-      role:      "assistant",
-      content:   "",
-      status:    "loading",
+      id: loadingId,
+      role: "assistant",
+      content: "",
+      status: "loading",
       timestamp: new Date().toISOString(),
     };
 
@@ -295,13 +370,13 @@ export default function ChatPage() {
 
     try {
       const body: any = { text, user_id: userId };
-      if (intentOverride)  body.intent_override  = intentOverride;
+      if (intentOverride) body.intent_override = intentOverride;
       if (entityOverrides) body.entity_overrides = entityOverrides;
 
-      const res  = await fetchWithRetry(`${API_BASE_URL}/api/ai/parse`, {
-        method:  "POST",
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/ai/parse`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json();
@@ -312,10 +387,10 @@ export default function ChatPage() {
     } catch (err) {
       console.error("AI parse error:", err);
       const errMsg: Message = {
-        id:        loadingId,
-        role:      "assistant",
-        content:   "Something went wrong. Please try again.",
-        status:    "error",
+        id: loadingId,
+        role: "assistant",
+        content: "Something went wrong. Please try again.",
+        status: "error",
         timestamp: new Date().toISOString(),
       };
       setMessages(prev => prev.map(m => m.id === loadingId ? errMsg : m));
@@ -328,8 +403,8 @@ export default function ChatPage() {
   // ── Build assistant message from API response ──────────────────
   const buildAssistantMessage = (data: any): Message => {
     const base = {
-      id:        generateId(),
-      role:      "assistant" as MessageRole,
+      id: generateId(),
+      role: "assistant" as MessageRole,
       timestamp: new Date().toISOString(),
     };
 
@@ -341,7 +416,7 @@ export default function ChatPage() {
       const results: any[] = data.results ?? [];
       const lines = results.map((r: any) => {
         if (r.status === "success") return r.result?.message ?? "Done.";
-        if (r.status === "error")   return `Error: ${r.error}`;
+        if (r.status === "error") return `Error: ${r.error}`;
         return "";
       }).filter(Boolean);
       return { ...base, content: lines.join("\n") || "Done.", status: "success" };
@@ -350,17 +425,17 @@ export default function ChatPage() {
     if (data.status === "clarification_needed") {
       const cl: ClarificationPayload = {
         clarification_type: data.clarification_type,
-        candidates:         data.candidates,
-        query:              data.query,
-        entity_key:         data.entity_key,
-        requested_start:    data.requested_start,
-        requested_end:      data.requested_end,
-        suggested_start:    data.suggested_start,
-        suggested_end:      data.suggested_end,
-        title:              data.title,
-        original_intent:    data.original_intent,
-        original_entities:  data.original_entities,
-        original_text:      data.original_text,
+        candidates: data.candidates,
+        query: data.query,
+        entity_key: data.entity_key,
+        requested_start: data.requested_start,
+        requested_end: data.requested_end,
+        suggested_start: data.suggested_start,
+        suggested_end: data.suggested_end,
+        title: data.title,
+        original_intent: data.original_intent,
+        original_entities: data.original_entities,
+        original_text: data.original_text,
       };
       return { ...base, content: data.message, status: "clarification_needed", clarification: cl };
     }
@@ -369,16 +444,15 @@ export default function ChatPage() {
   };
 
   // ── Clarification handlers ─────────────────────────────────────
-
-  const handleCandidateSelect = (candidate: string, cl: ClarificationPayload, msgId: string) => {
+  const handleCandidateSelect = (candidateId: string, cl: ClarificationPayload, msgId: string) => {
     if (!cl.original_intent || !cl.original_entities) return;
     const entityKey = cl.entity_key ?? "events";
     const overridden = {
       ...cl.original_entities,
-      [entityKey]: [candidate], 
+      [entityKey]: [candidateId],
     };
     sendMessage(
-      `Selected: ${candidate}`,
+      `Selected option`,
       cl.original_intent,
       overridden,
       msgId,
@@ -390,7 +464,7 @@ export default function ChatPage() {
     const overridden = {
       ...cl.original_entities,
       start_timestamp: cl.suggested_start,
-      end_timestamp:   cl.suggested_end ?? cl.suggested_start,
+      end_timestamp: cl.suggested_end ?? cl.suggested_start,
     };
     sendMessage(
       `Confirmed: ${cl.title ?? "event"} at ${formatSlotTime(cl.suggested_start)}`,
@@ -403,12 +477,65 @@ export default function ChatPage() {
   const handleSlotCancel = (msgId: string) => {
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, resolved: true } : m));
     setMessages(prev => [...prev, {
-      id:        generateId(),
-      role:      "assistant",
-      content:   "No problem — the booking has been cancelled.",
-      status:    "success",
+      id: generateId(),
+      role: "assistant",
+      content: "No problem — the booking has been cancelled.",
+      status: "success",
       timestamp: new Date().toISOString(),
     }]);
+  };
+
+  // ── Feedback handlers ──────────────────────────────────────────
+  const requestFeedback = (msgId: string, rating: "positive" | "negative") => {
+    const msgIndex = messages.findIndex(m => m.id === msgId);
+    if (msgIndex <= 0) return;
+
+    let userMsg = "";
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        userMsg = messages[i].content;
+        break;
+      }
+    }
+
+    setFeedbackModal({
+      isOpen: true,
+      msgId,
+      rating,
+      promptText: userMsg,
+      responseText: messages[msgIndex].content
+    });
+  };
+
+  const submitFeedback = async () => {
+    if (!feedbackModal || !userId) return;
+
+    // Optimistically update the UI to show the selected thumb color
+    setMessages(prev => prev.map(m =>
+      m.id === feedbackModal.msgId ? { ...m, feedback: feedbackModal.rating } : m
+    ));
+
+    const payload = {
+      prompt: feedbackModal.promptText,
+      response: feedbackModal.responseText,
+      rating: feedbackModal.rating,
+      source: "web_chat",
+      intents: [],
+      entities: {},
+      interaction_id: `${userId}_${Date.now()}`
+    };
+
+    setFeedbackModal(null);
+
+    try {
+      await fetchWithRetry(`${API_BASE_URL}/api/ai/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.error("Failed to submit feedback:", e);
+    }
   };
 
   // ── Input handling ─────────────────────────────────────────────
@@ -432,41 +559,81 @@ export default function ChatPage() {
     <div className="min-h-[100dvh] flex flex-col relative overflow-hidden transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
       {/* Decorative Orbs handled entirely by body::before in global.css */}
 
-      {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col h-[100dvh] transition-all duration-300 w-full pb-24">
-        
-        {/* Header - Now spans full width */}
-        <header 
-          className="sticky top-0 z-30 px-5 pt-[calc(env(safe-area-inset-top,20px)+16px)] pb-4 flex items-center justify-center gap-3 w-full transition-colors duration-500"
-          style={{
-            background: "var(--color-bg-glass-strong)",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            borderBottom: "1px solid var(--color-border)",
-          }}
-        >
-          <div 
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors duration-500"
+      {/* Feedback Modal Overlay */}
+      {feedbackModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in">
+          <div
+            className="rounded-3xl p-6 max-w-sm w-full shadow-2xl transition-colors duration-500"
             style={{
-              background: "var(--color-accent-gradient)",
-              boxShadow: "var(--shadow-md)",
+              background: "var(--color-bg-glass-strong)",
+              border: "1px solid var(--color-border)",
+              backdropFilter: "blur(20px)"
             }}
           >
-            <svg className="w-5 h-5" style={{ color: "var(--color-bg-base)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="flex flex-col items-center text-center gap-3">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center mb-1 transition-colors duration-500"
+                style={{
+                  background: feedbackModal.rating === "positive" ? "var(--color-success-bg)" : "var(--color-danger-bg)",
+                  color: feedbackModal.rating === "positive" ? "var(--color-success)" : "var(--color-danger)"
+                }}
+              >
+                {feedbackModal.rating === "positive" ? (
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"></path>
+                  </svg>
+                )}
+              </div>
+              <h3 className="text-lg font-bold" style={{ color: "var(--color-text-primary)" }}>Submit Feedback</h3>
+              <p className="text-sm px-2 leading-relaxed" style={{ color: "var(--color-text-secondary)" }}>
+                Would you like to send this to the developers to help improve the AI?
+              </p>
+              <div className="flex gap-3 w-full mt-4">
+                <button
+                  onClick={() => setFeedbackModal(null)}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitFeedback}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] btn-primary"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Chat Area */}
+      <main className="flex-1 flex flex-col h-[100dvh] transition-all duration-300 w-full pb-24">
+
+        {/* NEW: Updated Header matching Analytics / Tasks standard */}
+        <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pt-[calc(env(safe-area-inset-top,24px)+24px)] pb-6 flex items-center gap-4 animate-fade-in-up">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center transition-colors duration-500 flex-shrink-0"
+            style={{ background: "var(--color-accent-gradient)", boxShadow: "var(--shadow-md)" }}
+          >
+            <svg className="w-7 h-7" style={{ color: "var(--color-bg-base)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.125 9.375l-.469-1.641a2.25 2.25 0 00-1.546-1.546l-1.641-.469 1.641-.469a2.25 2.25 0 001.546-1.546l.469-1.641.469 1.641a2.25 2.25 0 001.546 1.546l1.641.469-1.641.469a2.25 2.25 0 00-1.546 1.546l-.469 1.641z" />
             </svg>
           </div>
-          <div className="flex flex-col items-center">
-            <h1 className="text-base font-bold tracking-tight transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>AI Assistant</h1>
-            <p className="text-[9px] font-medium uppercase tracking-widest transition-colors duration-200" style={{ color: "var(--color-text-tertiary)" }}>
-              Scheduling · Tasks · Reminders
-            </p>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>Assistant</h1>
+            <p className="text-sm font-semibold mt-1 transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Scheduling & Intelligence</p>
           </div>
-        </header>
+        </div>
 
         {/* Messages Area - Constrained to max-w-4xl for readability */}
-        <div 
-          className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-6 py-6 w-full max-w-4xl mx-auto"
+        <div
+          className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-6 w-full max-w-4xl mx-auto"
         >
           <div className="w-full flex flex-col pb-4">
             {/* History loading skeleton */}
@@ -474,12 +641,12 @@ export default function ChatPage() {
               <div className="flex flex-col gap-4 mb-4">
                 {[1, 2, 3].map(i => (
                   <div key={`skeleton-${i}`} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
-                    <div 
+                    <div
                       className="h-12 rounded-2xl animate-pulse transition-colors duration-500"
-                      style={{ 
-                        width: `${160 + i * 40}px`, 
-                        background: "var(--color-bg-subtle)" 
-                      }} 
+                      style={{
+                        width: `${160 + i * 40}px`,
+                        background: "var(--color-bg-subtle)"
+                      }}
                     />
                   </div>
                 ))}
@@ -488,8 +655,8 @@ export default function ChatPage() {
 
             {/* Empty state */}
             {historyLoaded && messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center min-h-[60vh] gap-5 text-center px-4">
-                <div 
+              <div className="flex flex-col items-center justify-center min-h-[50vh] gap-5 text-center px-4">
+                <div
                   className="w-20 h-20 rounded-2xl flex items-center justify-center mb-2 animate-float transition-colors duration-500"
                   style={{
                     background: "var(--color-accent-glow)",
@@ -513,8 +680,8 @@ export default function ChatPage() {
                     "What do I have on Friday?",
                     "Remind me to review notes at 9pm",
                   ].map(s => (
-                    <button 
-                      key={s} 
+                    <button
+                      key={s}
                       onClick={() => { setInput(s); inputRef.current?.focus(); }}
                       className="px-4 py-3.5 rounded-xl text-sm text-left transition-all hover:scale-[1.01] active:scale-[0.99]"
                       style={{
@@ -541,19 +708,21 @@ export default function ChatPage() {
                 onCandidateSelect={(c, cl) => handleCandidateSelect(c, cl, msg.id)}
                 onSlotConfirm={cl => handleSlotConfirm(cl, msg.id)}
                 onSlotCancel={() => handleSlotCancel(msg.id)}
+                onFeedbackRequest={requestFeedback}
               />
             ))}
 
-            <div ref={bottomRef} className="h-4" />
+            {/* THE FIX: Deep symmetrical clearance spacer */}
+            <div ref={bottomRef} className="h-20 md:h-18 flex-shrink-0" />
           </div>
         </div>
 
         {/* Input Bar */}
-        <div 
-          className="fixed bottom-[calc(env(safe-area-inset-bottom,16px)+100px)] left-0 right-0 z-40 px-4 pt-4 pb-2 transition-all duration-300 pointer-events-none"
+        <div
+          className="fixed bottom-[calc(env(safe-area-inset-bottom,16px)+6.25rem)] left-0 right-0 z-40 px-4 pt-4 pb-2 transition-all duration-300 pointer-events-none"
         >
           <div className="max-w-3xl mx-auto w-full pointer-events-auto rounded-2xl transition-colors duration-500" style={{ boxShadow: "var(--shadow-lg)" }}>
-            <div 
+            <div
               className="flex items-center gap-2 rounded-2xl p-2 relative transition-colors duration-500"
               style={{
                 background: "var(--color-bg-glass-strong)",
@@ -575,11 +744,11 @@ export default function ChatPage() {
                   color: "var(--color-text-primary)",
                 }}
               />
-              
+
               <button
                 onClick={toggleListening}
                 className={`p-2.5 rounded-xl transition-all duration-200 flex-shrink-0`}
-                style={isListening 
+                style={isListening
                   ? { background: "var(--color-danger-bg)", color: "var(--color-danger)", animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite" }
                   : { background: "var(--color-surface)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }
                 }
@@ -597,7 +766,7 @@ export default function ChatPage() {
                 onClick={() => sendMessage(input)}
                 disabled={isSending || (!input.trim() && !isListening)}
                 className="p-2.5 rounded-xl transition-all duration-200 flex-shrink-0 disabled:opacity-50"
-                style={(!isSending && input.trim()) 
+                style={(!isSending && input.trim())
                   ? { background: "var(--color-accent-gradient)", color: "var(--color-bg-base)", boxShadow: "var(--shadow-sm)" }
                   : { background: "var(--color-surface)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }
                 }

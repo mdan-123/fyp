@@ -119,36 +119,40 @@ class IntentExecutionEngine:
     #  the AmbiguityError carries enough metadata for the frontend to     #
     #  display date, time, and location alongside the title.              #
     # ------------------------------------------------------------------ #
-    def _resolve_or_raise(self, title_matches: list, title_to_item: dict,
-                        query: str, entity_key: str):
+    def _resolve_or_raise(self, matches: list, query: str, entity_key: str):
         """
-        Takes a list of matched title strings and the title→item lookup.
-        - 0 matches → returns None (caller tries next stage)
+        Takes a list of matched item dictionaries.
+        - 0 matches → returns None
         - 1 match   → returns the full item dict
         - 2+ matches → raises AmbiguityError with enriched candidate dicts
         """
-        if not title_matches:
+        if not matches:
             return None
 
-        if len(title_matches) == 1:
-            return title_to_item.get(title_matches[0])
+        # Deduplicate based on document ID to ensure we don't present the exact same document twice
+        unique_matches = {m.get("_doc_id"): m for m in matches if m.get("_doc_id")}
+        deduped = list(unique_matches.values())
+        
+        if not deduped:
+            return None
+
+        if len(deduped) == 1:
+            return deduped[0]
 
         # Multiple matches — enrich each candidate with display metadata
         # so the frontend can show date/time/location, not just the title.
         enriched = []
-        for t in title_matches:
-            item = title_to_item.get(t)
-            if item:
-                enriched.append({
-                    "id":          item.get("_doc_id", ""),
-                    "title":       item.get("title", t),
-                    "start":       item.get("start", ""),
-                    "end":         item.get("end", ""),
-                    "location":    item.get("location", ""),
-                    "description": item.get("description", ""),
-                    "due_date":    item.get("due_date", ""),   # tasks
-                    "status":      item.get("status", ""),
-                })
+        for item in deduped:
+            enriched.append({
+                "id":          item.get("_doc_id", ""),
+                "title":       item.get("title", ""),
+                "start":       item.get("start", ""),
+                "end":         item.get("end", ""),
+                "location":    item.get("location", ""),
+                "description": item.get("description", ""),
+                "due_date":    item.get("due_date", ""),   # tasks
+                "status":      item.get("status", ""),
+            })
 
         raise AmbiguityError(
             message    = f"I found multiple items matching '{query}'. Which one did you mean?",
@@ -156,7 +160,6 @@ class IntentExecutionEngine:
             query      = query,
             entity_key = entity_key,
         )
-
 
 
     def _fetch_event_by_id(self, user_id: str, doc_id: str) -> dict | None:
@@ -211,7 +214,7 @@ class IntentExecutionEngine:
                 candidates = matches,
                 query      = title_query,
                 entity_key = entity_key,
-          )
+            )
         return matches[0] if matches else None
 
     def _get_wordnet_synonyms(self, word: str) -> set:
@@ -308,6 +311,11 @@ class IntentExecutionEngine:
     def _find_event_by_title(self, user_id: str, title_query: str, aliases: dict = None):
         if not title_query:
             return None
+        
+        direct_match = self._fetch_event_by_id(user_id, title_query)
+        if direct_match:
+            print(f"[TitleResolver] Direct ID match (Ambiguity Bypass): {title_query}")
+            return direct_match
 
         aliases          = aliases or {}
         query_candidates = self._resolve_with_aliases(title_query, aliases)
@@ -321,44 +329,48 @@ class IntentExecutionEngine:
             event_data["_doc_id"]  = doc.id
             all_events.append(event_data)
 
-        all_titles     = [e.get("title", "") for e in all_events if e.get("title")]
-        title_to_event = {e.get("title", ""): e for e in all_events}
+        all_titles = [e.get("title", "") for e in all_events if e.get("title")]
 
         for query in query_candidates:
             if query != title_query:
                 print(f"[TitleResolver] Trying alias expansion: '{query}'")
 
             # Stage 1 — Substring
-            stage1 = [t for t in all_titles if query.lower() in t.lower()]
-            resolved = self._resolve_or_raise(stage1, title_to_event, query, "events")
+            # THE FIX: Directly extract the event dictionary instead of just the string
+            stage1 = [e for e in all_events if query.lower() in e.get("title", "").lower()]
+            resolved = self._resolve_or_raise(stage1, query, "events")
             if resolved:
                 return resolved
 
             # Stage 2 — Fuzzy
-            fuzzy = self._fuzzy_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(fuzzy, title_to_event, query, "events")
+            fuzzy_titles = self._fuzzy_match_title(query, all_titles)
+            fuzzy_events = [e for e in all_events if e.get("title", "") in fuzzy_titles]
+            resolved = self._resolve_or_raise(fuzzy_events, query, "events")
             if resolved:
                 print(f"[TitleResolver] Fuzzy: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
             # Stage 3 — WordNet
-            wordnet = self._wordnet_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(wordnet, title_to_event, query, "events")
+            wordnet_titles = self._wordnet_match_title(query, all_titles)
+            wordnet_events = [e for e in all_events if e.get("title", "") in wordnet_titles]
+            resolved = self._resolve_or_raise(wordnet_events, query, "events")
             if resolved:
                 print(f"[TitleResolver] WordNet: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
             # Stage 4 — Embedding
-            embedding = self._embedding_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(embedding, title_to_event, query, "events")
+            embedding_titles = self._embedding_match_title(query, all_titles)
+            embedding_events = [e for e in all_events if e.get("title", "") in embedding_titles]
+            resolved = self._resolve_or_raise(embedding_events, query, "events")
             if resolved:
                 print(f"[TitleResolver] Embedding: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
         # Stage 5 — Gemini (once, with original query)
         print(f"[TitleResolver] All local stages missed '{title_query}'. Trying Gemini.")
-        gemini = self._resolve_title_with_gemini(title_query, all_titles)
-        resolved = self._resolve_or_raise(gemini, title_to_event, title_query, "events")
+        gemini_titles = self._resolve_title_with_gemini(title_query, all_titles)
+        gemini_events = [e for e in all_events if e.get("title", "") in gemini_titles]
+        resolved = self._resolve_or_raise(gemini_events, title_query, "events")
         if resolved:
             print(f"[TitleResolver] Gemini: '{title_query}' → '{resolved.get('title')}'")
             return resolved
@@ -369,52 +381,56 @@ class IntentExecutionEngine:
     def _find_task_by_title(self, user_id: str, title_query: str, aliases: dict = None):
         if not title_query:
             return None
-
+        direct_match = self._fetch_task_by_id(user_id, title_query)
+        if direct_match:
+            print(f"[TaskResolver] Direct ID match (Ambiguity Bypass): {title_query}")
+            return direct_match
         aliases          = aliases or {}
         query_candidates = self._resolve_with_aliases(title_query, aliases)
-
         tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
         all_tasks = []
-
         for status in ["pending", "scheduled", "in_progress"]:
             for doc in tasks_ref.where("status", "==", status).stream():
                 task_data             = doc.to_dict()
                 task_data["_doc_id"]  = doc.id
                 all_tasks.append(task_data)
 
-        all_titles     = [t.get("title", "") for t in all_tasks if t.get("title")]
-        title_to_task  = {t.get("title", ""): t for t in all_tasks}
+        all_titles = [t.get("title", "") for t in all_tasks if t.get("title")]
 
         for query in query_candidates:
             if query != title_query:
                 print(f"[TaskResolver] Trying alias expansion: '{query}'")
 
-            stage1 = [t for t in all_titles if query.lower() in t.lower()]
-            resolved = self._resolve_or_raise(stage1, title_to_task, query, "tasks")
+            stage1 = [t for t in all_tasks if query.lower() in t.get("title", "").lower()]
+            resolved = self._resolve_or_raise(stage1, query, "tasks")
             if resolved:
                 return resolved
 
-            fuzzy = self._fuzzy_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(fuzzy, title_to_task, query, "tasks")
+            fuzzy_titles = self._fuzzy_match_title(query, all_titles)
+            fuzzy_tasks = [t for t in all_tasks if t.get("title", "") in fuzzy_titles]
+            resolved = self._resolve_or_raise(fuzzy_tasks, query, "tasks")
             if resolved:
                 print(f"[TaskResolver] Fuzzy: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
-            wordnet = self._wordnet_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(wordnet, title_to_task, query, "tasks")
+            wordnet_titles = self._wordnet_match_title(query, all_titles)
+            wordnet_tasks = [t for t in all_tasks if t.get("title", "") in wordnet_titles]
+            resolved = self._resolve_or_raise(wordnet_tasks, query, "tasks")
             if resolved:
                 print(f"[TaskResolver] WordNet: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
-            embedding = self._embedding_match_title(query, all_titles)
-            resolved = self._resolve_or_raise(embedding, title_to_task, query, "tasks")
+            embedding_titles = self._embedding_match_title(query, all_titles)
+            embedding_tasks = [t for t in all_tasks if t.get("title", "") in embedding_titles]
+            resolved = self._resolve_or_raise(embedding_tasks, query, "tasks")
             if resolved:
                 print(f"[TaskResolver] Embedding: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
         print(f"[TaskResolver] All local stages missed '{title_query}'. Trying Gemini.")
-        gemini = self._resolve_title_with_gemini(title_query, all_titles)
-        resolved = self._resolve_or_raise(gemini, title_to_task, title_query, "tasks")
+        gemini_titles = self._resolve_title_with_gemini(title_query, all_titles)
+        gemini_tasks = [t for t in all_tasks if t.get("title", "") in gemini_titles]
+        resolved = self._resolve_or_raise(gemini_tasks, title_query, "tasks")
         if resolved:
             print(f"[TaskResolver] Gemini: '{title_query}' → '{resolved.get('title')}'")
             return resolved
@@ -594,38 +610,32 @@ class IntentExecutionEngine:
                         "PREFER_DATES_FROM":       "future",
                     }
                 )
-
             # ── 3. Build source-day snapshot ───────────────────────────────────
             source_ts = entities.get("source_timestamp")
-
             if not source_ts:
                 source_date_str = entities.get("source_date")
                 if source_date_str:
                     resolved = parse_dt(source_date_str)
                     if resolved:
                         source_ts = resolved.isoformat().replace("+00:00", "Z")
-                        print(f"  [UpdateEvent] Resolved source_date '{source_date_str}' → {source_ts}")
-
             day_snapshot = []
             if source_ts:
                 window_start_dt = dt.datetime.fromisoformat(source_ts.replace("Z", "+00:00"))
                 window_end_dt   = window_start_dt + dt.timedelta(hours=24)
                 window_start    = window_start_dt.isoformat().replace("+00:00", "Z")
                 window_end      = window_end_dt.isoformat().replace("+00:00", "Z")
-
                 print(f"  Day window (UTC): {window_start} → {window_end}")
-
                 docs = events_ref.where("start", ">=", window_start).stream()
                 for d in docs:
                     data        = d.to_dict()
                     event_start = data.get("start", "")
-                    if event_start < window_end:
+                    # THE FIX: Only include the event if it's within the window AND its status is 'pending'
+                    # We check for 'pending' explicitly to ignore 'completed' and 'missed'
+                    status = data.get("completion_status", "pending")
+                    
+                    if event_start < window_end and status == "pending":
                         day_snapshot.append(data | {"_doc_id": d.id})
-
-                print(f"  Day snapshot: {len(day_snapshot)} event(s)")
-                for e in day_snapshot:
-                    print(f"    - '{e.get('title')}' starts {e.get('start')}")
-
+                print(f"  Day snapshot (Filtered): {len(day_snapshot)} pending event(s) found.")
             # ── 4. Resolve each title to a Firestore document ─────────────────
             processed_ids  = set()
             resolved_pairs = []
@@ -633,6 +643,15 @@ class IntentExecutionEngine:
             for title in event_titles:
                 print(f"\n  Resolving title: '{title}'")
                 matched = None
+
+                direct_match = self._fetch_event_by_id(user_id, title)
+                if direct_match:
+                    matched = direct_match
+                    if matched["_doc_id"] not in processed_ids:
+                        processed_ids.add(matched["_doc_id"])
+                        print(f"  ✓ Direct ID match: '{matched.get('title')}'")
+                        resolved_pairs.append((matched, matched.get("title")))
+                    continue #
 
                 if day_snapshot:
                     candidates = [
@@ -898,6 +917,12 @@ class IntentExecutionEngine:
                 print(f"\n--- Processing deletion for: '{title}' ---")
                 
                 target_events = []
+
+                direct_match = self._fetch_event_by_id(user_id, title)
+                if direct_match:
+                    target_events = [direct_match]
+                    processed_ids.add(direct_match["_doc_id"])
+                    print(f"  ✓ Direct ID match: '{direct_match.get('title')}'")
                 
                 if day_snapshot:
                     matches = [e for e in day_snapshot if e.get("title", "").lower() == title.lower() and e["_doc_id"] not in processed_ids]
@@ -1517,7 +1542,7 @@ class IntentExecutionEngine:
             # Fetch all active tasks to cross-reference with raw text (including missed to allow resurrection)
             active_tasks = []
             print("    -> Fetching active tasks from Firestore for raw text matching...")
-            for status in ["pending", "scheduled", "in_progress", "missed"]:
+            for status in ["pending", "scheduled", "in_progress"]:
                 for doc in tasks_ref.where("status", "==", status).stream():
                     t_data = doc.to_dict()
                     t_data["_doc_id"] = doc.id
@@ -1551,6 +1576,16 @@ class IntentExecutionEngine:
                 
                 print(f"    -> Extracted NER tokens to resolve: {task_titles}")
                 for title in task_titles:
+                    direct_match = next((t for t in active_tasks if t["_doc_id"] == title), None)
+                    if direct_match:
+                        if direct_match not in target_tasks:
+                            target_tasks.append(direct_match)
+                            print(f"      * Direct ID Match (Ambiguity Bypass): '{direct_match.get('title')}'")
+                        continue
+
+
+
+
                     print(f"      * Calling strict resolver for: '{title}'")
                     matched_task = self._find_task_by_title(user_id, title)
                     if matched_task and matched_task not in target_tasks:
@@ -1768,10 +1803,23 @@ class IntentExecutionEngine:
                 if not task_titles:
                     task_titles = [t for t in entities.get("events", []) if t]
                 
+                print(f"    -> Extracted NER tokens to resolve: {task_titles}")
                 for title in task_titles:
+                    # --- THE FIX: AMBIGUITY BYPASS ---
+                    direct_match = next((t for t in active_tasks if t["_doc_id"] == title), None)
+                    if direct_match:
+                        if direct_match not in target_tasks:
+                            target_tasks.append(direct_match)
+                            print(f"      * Direct ID Match (Ambiguity Bypass): '{direct_match.get('title')}'")
+                        continue
+
+                    print(f"      * Calling strict resolver for: '{title}'")
                     matched_task = self._find_task_by_title(user_id, title)
                     if matched_task and matched_task not in target_tasks:
                         target_tasks.append(matched_task)
+                        print(f"        -> Resolved to: '{matched_task.get('title')}'")
+                    else:
+                        print(f"        -> Failed to resolve '{title}' or already added.")
 
             if not target_tasks:
                 raise ValueError("I couldn't identify which task you want to check off.")
@@ -1939,6 +1987,12 @@ class IntentExecutionEngine:
                 
                 print(f"    -> Extracted NER tokens to resolve: {task_titles}")
                 for title in task_titles:
+                    direct_match = next((t for t in all_tasks if t["_doc_id"] == title), None)
+                    if direct_match:
+                        if direct_match not in target_tasks:
+                            target_tasks.append(direct_match)
+                            print(f"      * Direct ID Match (Ambiguity Bypass): '{direct_match.get('title')}'")
+                        continue
                     print(f"      * Calling strict resolver for: '{title}'")
                     matched_task = self._find_task_by_title(user_id, title)
                     if matched_task and matched_task not in target_tasks:
@@ -2224,7 +2278,7 @@ class IntentExecutionEngine:
 
             print("\n  [Step 1] Loading Candidate Reminders...")
             active_rems = []
-            for status in ["pending", "missed"]:
+            for status in ["pending"]:
                 docs = rem_ref.where("status", "==", status).stream()
                 for doc in docs:
                     d = doc.to_dict()
@@ -2255,7 +2309,11 @@ class IntentExecutionEngine:
                 print(f"      * Extracted Tokens: {tokens}")
                 for token in tokens:
                     for r in active_rems:
-                        if token.lower() in r.get("title", "").lower():
+                        if token == r["_doc_id"]:
+                            print(f"      * Direct ID Match (Ambiguity Bypass): '{r.get('title')}'")
+                            target_rems.append(r)
+                            break
+                        elif token.lower() in r.get("title", "").lower():
                             print(f"        -> Token Match: '{token}' -> '{r.get('title')}'")
                             target_rems.append(r)
 
@@ -2326,7 +2384,11 @@ class IntentExecutionEngine:
                 tokens = entities.get("reminders", []) + entities.get("tasks", []) + entities.get("events", [])
                 for token in tokens:
                     for r in all_rems:
-                        if token.lower() in r.get("title", "").lower():
+                        if token == r["_doc_id"]:
+                            print(f"      * Direct ID Match (Ambiguity Bypass): '{r.get('title')}'")
+                            target_rems.append(r)
+                            break
+                        elif token.lower() in r.get("title", "").lower():
                             print(f"      * Token Match: '{token}' -> '{r.get('title')}'")
                             target_rems.append(r)
 

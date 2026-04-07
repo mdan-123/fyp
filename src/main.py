@@ -2616,7 +2616,7 @@ async def submit_feedback(req: FeedbackRequest):
             try:
                 from google.genai import types as gtypes
                 response = nlu_engine.gemini_client.models.generate_content(
-                    model="gemini-3-pro-preview",
+                    model="gemini-2.0-flash",
                     contents=prompt,
                     config=gtypes.GenerateContentConfig(
                         response_mime_type="application/json"
@@ -2892,36 +2892,28 @@ async def parse_event_with_ai(req: AIParseRequest):
                 chat_history=chat_history_str,
                 user_timezone=str(user_tz)
             )
- 
         print(f"Routing result: {routing_result}")
- 
         if routing_result.get("chat_response"):
             reply = routing_result["chat_response"]
             _save_chat_message(db, req.user_id, role="assistant", content=reply, source="LLM_chat")
             return {"status": "success", "type": "chat", "message": reply}
- 
         if routing_result.get("intents"):
             dispatch_results = routing_engine.dispatch(
                 nlu_result      = routing_result,
                 user_id         = req.user_id,
                 intent_handlers = db_engine.get_intent_map()
             )
- 
             clarification_items = [r for r in dispatch_results if r.get("status") == "clarification_needed"]
             if clarification_items:
                 cl = clarification_items[0]
                 cl_type = cl.get("clarification_type")
- 
                 if cl_type == "ambiguous_match":
                     clarification_msg = cl.get("message", "I found multiple matches. Which did you mean?")
                 elif cl_type == "slot_conflict":
                     clarification_msg = cl.get("message", "That time slot is already booked.")
                 else:
                     clarification_msg = cl.get("message", "I need more information.")
- 
-                _save_chat_message(db, req.user_id, role="assistant",
-                                   content=clarification_msg, source="clarification")
- 
+                _save_chat_message(db, req.user_id, role="assistant",content=clarification_msg, source="clarification")
                 return {
                     "status":             "clarification_needed",
                     "type":               "clarification",
@@ -2951,22 +2943,17 @@ async def parse_event_with_ai(req: AIParseRequest):
                     "original_entities": routing_result.get("entities", {}),
                     "original_text":     expanded_text,
                 }
- 
             assistant_msg = _build_assistant_message(dispatch_results, expanded_text)
-            _save_chat_message(db, req.user_id, role="assistant",
-                               content=assistant_msg, source=routing_result.get("source", "unknown"))
- 
+            _save_chat_message(db, req.user_id, role="assistant", content=assistant_msg, source=routing_result.get("source", "unknown"))
             return {
                 "status":        "success",
                 "type":          "action",
                 "results":       dispatch_results,
                 "original_text": expanded_text,
             }
- 
         fallback_msg = "I couldn't quite grasp that scheduling request. Could you rephrase it?"
         _save_chat_message(db, req.user_id, role="assistant", content=fallback_msg, source="fallback")
         return {"status": "error", "message": fallback_msg}
- 
     except Exception as e:
         print(f"API Engine error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3745,3 +3732,154 @@ def get_user_timezone(user_id: str) -> zoneinfo.ZoneInfo:
         print(f"[Timezone] Error fetching timezone for {user_id}: {e}")
     
     return zoneinfo.ZoneInfo("UTC")
+
+
+from pydantic import BaseModel
+from fastapi import HTTPException
+from google.cloud import firestore
+import datetime as dt
+
+class TelemetryRecordRequest(BaseModel):
+    user_id: str
+    task_id: str
+    outcome: str 
+    category: str
+    priority: int
+    energy_level: int
+    estimated_duration: int
+    hour_of_day: int
+    day_of_week: int
+    lead_time_days: int
+    snooze_count: int
+    active_time_debt_mins: int
+    daily_task_load: int
+    category_success_rate: float
+
+@app.post("/api/analytics/telemetry/record")
+async def record_training_telemetry(req: TelemetryRecordRequest):
+    """
+    Silently logs the terminal state of a task (completed or missed) 
+    along with its full behavioural context. This builds the tabular 
+    dataset required to train a personalised risk model in the future.
+    """
+    try:
+        if req.outcome not in ["completed", "missed"]:
+            raise ValueError("Outcome must be either 'completed' or 'missed'")
+
+        telemetry_ref = db.collection("training_telemetry").document()
+        
+        telemetry_data = {
+            "user_id": req.user_id,
+            "task_id": req.task_id,
+            "target_label": req.outcome,
+            
+            "features_intrinsic": {
+                "category": req.category,
+                "priority": req.priority,
+                "energy_level": req.energy_level,
+                "estimated_duration": req.estimated_duration
+            },
+            
+            "features_temporal": {
+                "hour_of_day": req.hour_of_day,
+                "day_of_week": req.day_of_week,
+                "lead_time_days": req.lead_time_days
+            },
+            
+            "features_behavioural": {
+                "snooze_count": req.snooze_count,
+                "active_time_debt_mins": req.active_time_debt_mins,
+                "daily_task_load": req.daily_task_load,
+                "category_success_rate": req.category_success_rate
+            },
+            
+            "recorded_at": firestore.SERVER_TIMESTAMP
+        }
+
+        telemetry_ref.set(telemetry_data)
+        
+        return {
+            "status": "success", 
+            "message": "Telemetry recorded for future model training."
+        }
+
+    except Exception as e:
+        print(f"[Telemetry Error] Failed to log training data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+class GlobalSearchRequest(BaseModel):
+    user_id: str
+    query: str
+    search_type: Literal["events", "tasks", "reminders", "all"]
+
+# --- Endpoint ---
+@app.post("/api/search")
+async def global_search(req: GlobalSearchRequest):
+    """
+    Unified search endpoint. Scans events, tasks, or reminders 
+    based on the 'search_type' parameter and returns rich metadata.
+    """
+    try:
+        q_lower = req.query.lower().strip()
+        if not q_lower:
+            return {"status": "success", "results": []}
+
+        results = []
+        collections_to_search = []
+
+        if req.search_type in ["events", "all"]:
+            collections_to_search.append(("raw_events", "event"))
+        if req.search_type in ["tasks", "all"]:
+            collections_to_search.append(("raw_tasks", "task"))
+        if req.search_type in ["reminders", "all"]:
+            collections_to_search.append(("reminders", "reminder"))
+
+        for coll_name, item_type in collections_to_search:
+            docs = db.collection("users").document(req.user_id).collection(coll_name).stream()
+            
+            for doc in docs:
+                data = doc.to_dict()
+                
+                title = data.get("title", "")
+                description = data.get("description", "")
+                body = data.get("body", "")
+                
+                search_string = f"{title} {description} {body}".lower()
+                
+                if q_lower in search_string:
+                    # Build a structured, lightweight return object
+                    result_item = {
+                        "id": doc.id,
+                        "type": item_type,
+                        "title": title,
+                        "status": data.get("status") or data.get("completion_status", "pending"),
+                        "created_at": data.get("created_at", "")
+                    }
+
+                    # Add Type-Specific Metadata for the UI
+                    if item_type == "event":
+                        result_item["start"] = data.get("start")
+                        result_item["end"] = data.get("end")
+                        result_item["location"] = data.get("location")
+                    elif item_type == "task":
+                        result_item["due_date"] = data.get("due_date")
+                        result_item["priority"] = data.get("priority")
+                    elif item_type == "reminder":
+                        result_item["trigger_time"] = data.get("trigger_time")
+                        result_item["trigger_type"] = data.get("trigger_type")
+
+                    results.append(result_item)
+
+        # Sort results: newest created first
+        results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+        return {
+            "status": "success",
+            "results": results[:15] # Top 15 matches
+        }
+
+    except Exception as e:
+        print(f"❌ [GlobalSearch] Error: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")

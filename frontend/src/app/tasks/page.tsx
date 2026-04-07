@@ -7,6 +7,7 @@ import TaskModal, { Task } from "@/components/TaskModal";
 import CustomCalendar from "@/components/CustomCalendar";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 import { App as CapacitorApp } from '@capacitor/app'; 
+import GlobalSearch from "@/components/GlobalSearch";
 import { Capacitor } from '@capacitor/core';
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";

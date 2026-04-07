@@ -10,7 +10,6 @@ import NavigationBar from "@/components/NavigationBar";
 import ConflictResolutionModal from "@/components/ConflictResolutionModal";
 import OptimisationPrepModal from "@/components/OptimisationPrepModal";
 import { LinkedAccount, CalendarEvent } from "../types";
-
 import { fetchWithRetry } from "@/lib/fetchUtils";
 import { App as CapacitorApp } from '@capacitor/app'; 
 import { Capacitor } from '@capacitor/core';
@@ -501,6 +500,29 @@ export default function Dashboard() {
           isPreviewMode={isPreviewMode}
         />
       </div>
+      {/* --- FLOATING ACTION BUTTON (ADD EVENT) --- */}
+      {!isPreviewMode && (
+        <button
+          onClick={() => {
+            setSelectedEditEvent(null);
+            setSelectedInstanceDate(undefined);
+            setIsModalOpen(true);
+          }}
+          className="fixed bottom-28 right-6 w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-all duration-300 z-40 btn-primary"
+          style={{ padding: 0 }}
+        >
+          <svg 
+            className="w-7 h-7" 
+            style={{ color: 'var(--color-bg-base)' }} 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        </button>
+      )}
 
       {isPreviewMode ? (
         <div 

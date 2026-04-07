@@ -231,7 +231,7 @@ export default function SettingsPage() {
       <aside 
         className="w-full md:w-80 md:h-screen flex-shrink-0 flex flex-col justify-between md:border-r transition-colors duration-200"
         style={{ 
-          paddingTop: 'calc(env(safe-area-inset-top, 24px) + 32px)',
+          paddingTop: 'calc(env(safe-area-inset-top, 24px) + 15px)',
           borderColor: 'var(--color-border)',
         }}
       >
