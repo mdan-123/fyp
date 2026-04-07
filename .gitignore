@@ -6,7 +6,7 @@ node_modules/
 __pycache__/
 .github/
 
-
+.vscode/
 
 
 # OS files

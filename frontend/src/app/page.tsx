@@ -10,6 +10,8 @@ import EventModal from "@/components/EventModal";
 import NavigationBar from "@/components/NavigationBar";
 import ConflictResolutionModal from "@/components/ConflictResolutionModal";
 import OptimisationPrepModal from "@/components/OptimisationPrepModal";
+import MorningDigestModal from "@/components/MorningDigestModal"; // NEW
+import TaskModal, { Task } from "@/components/TaskModal"; // NEW
 import { LinkedAccount, CalendarEvent } from "../types";
 import { fetchWithRetry } from "@/lib/fetchUtils";
 import { App as CapacitorApp } from '@capacitor/app'; 
@@ -40,6 +42,11 @@ export default function Dashboard() {
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
     const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
     const [isOptimisePrepModalOpen, setIsOptimisePrepModalOpen] = useState<boolean>(false);
+    
+    // --- NEW DIGEST STATES ---
+    const [isDigestOpen, setIsDigestOpen] = useState<boolean>(false);
+    const [isTaskModalOpen, setIsTaskModalOpen] = useState<boolean>(false);
+    const [selectedEditTask, setSelectedEditTask] = useState<Task | null>(null);
 
     const [selectedEditEvent, setSelectedEditEvent] = useState<CalendarEvent | null>(null);
     const [selectedInstanceDate, setSelectedInstanceDate] = useState<Date | undefined>(undefined);
@@ -51,6 +58,26 @@ export default function Dashboard() {
     const [isPreviewMode, setIsPreviewMode] = useState<boolean>(false);
     const [previewToggle, setPreviewToggle] = useState<"original" | "optimised">("optimised");
     const [optimiseTargetDate, setOptimiseTargetDate] = useState<Date>(new Date());
+
+    // --- DAILY DIGEST WAKE-UP ---
+    useEffect(() => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      
+      if (currentHour >= 5 && currentHour < 12) {
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const localDateStr = `${yyyy}-${mm}-${dd}`;
+        
+        const lastDigest = localStorage.getItem("lastMorningDigestDate");
+        
+        if (lastDigest !== localDateStr) {
+          setIsDigestOpen(true);
+          localStorage.setItem("lastMorningDigestDate", localDateStr);
+        }
+      }
+    }, []);
 
     // Auto-detect Sync Drifts on load
     useEffect(() => {
@@ -385,7 +412,6 @@ export default function Dashboard() {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center font-sans transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
         <div className="relative">
-          {/* Animated gradient orb managed by global CSS variables */}
           <div className="absolute -inset-8 rounded-full blur-2xl animate-pulse opacity-50" style={{ background: "var(--color-accent-glow)" }} />
           <div 
             className="relative w-16 h-16 rounded-2xl flex items-center justify-center shadow-xl transition-colors duration-500"
@@ -403,8 +429,6 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden relative transition-colors duration-500 bg-transparent">
-      {/* Decorative Orbs handled entirely by body::before in global.css */}
-
       {errorOptimising && (
         <div 
           className="fixed top-0 left-0 w-full z-[100] animate-fade-in-down"
@@ -482,7 +506,6 @@ export default function Dashboard() {
               : events
           }
           onEventClick={(event: CalendarEvent, date?: Date, overlaps?: CalendarEvent[]) => {
-            // NEW INTERCEPTOR: Handle Overlaps first, then Drifts, then Normal Edit
             if (overlaps && overlaps.length > 0) {
               setConflictQueue([{ type: "overlap", event, overlaps }]);
               setCurrentConflictIndex(0);
@@ -499,10 +522,10 @@ export default function Dashboard() {
           isSyncing={isSyncing || isOptimising}
           onOptimise={handleOptimiseClick}
           isPreviewMode={isPreviewMode}
-          onSearchClick={() => setIsSearchOpen(true)} // <--- ADD THIS ONE LINE!
+          onSearchClick={() => setIsSearchOpen(true)} 
         />
       </div>
-      {/* --- FLOATING ACTION BUTTON (ADD EVENT) --- */}
+
       {!isPreviewMode && (
         <button
           onClick={() => {
@@ -581,20 +604,6 @@ export default function Dashboard() {
         <NavigationBar />
       )}
 
-      <EventModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedEditEvent(null);
-          setSelectedInstanceDate(undefined);
-        }}
-        linkedAccounts={linkedAccounts}
-        onSaveSuccess={() => fetchEvents()}
-        userId={user?.uid || ""}
-        editEvent={selectedEditEvent}
-        instanceDate={selectedInstanceDate}
-      />
-
       {user?.uid && (
         <GlobalSearchModal
           isOpen={isSearchOpen}
@@ -613,6 +622,51 @@ export default function Dashboard() {
         />
       )}
 
+      <EventModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedEditEvent(null);
+          setSelectedInstanceDate(undefined);
+        }}
+        linkedAccounts={linkedAccounts}
+        onSaveSuccess={() => fetchEvents()}
+        userId={user?.uid || ""}
+        editEvent={selectedEditEvent}
+        instanceDate={selectedInstanceDate}
+      />
+
+      {/* --- MORNING DIGEST MODAL --- */}
+      {user?.uid && (
+        <MorningDigestModal 
+          isOpen={isDigestOpen}
+          onClose={() => setIsDigestOpen(false)}
+          userId={user.uid}
+          onEventClick={(event) => {
+            setSelectedEditEvent(event);
+            setSelectedInstanceDate(event.start ? new Date(event.start) : undefined);
+            setIsModalOpen(true);
+          }}
+          onTaskClick={(task) => {
+            setSelectedEditTask(task);
+            setIsTaskModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* --- TASK MODAL (To support interactions from the Digest) --- */}
+      {user?.uid && (
+        <TaskModal 
+          isOpen={isTaskModalOpen} 
+          onClose={() => {
+            setIsTaskModalOpen(false);
+            setSelectedEditTask(null);
+          }} 
+          userId={user.uid} 
+          editTask={selectedEditTask} 
+          onSaveSuccess={() => {}} 
+        />
+      )}
 
       <OptimisationPrepModal
         isOpen={isOptimisePrepModalOpen}

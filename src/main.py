@@ -3889,3 +3889,117 @@ async def global_search(req: GlobalSearchRequest):
     except Exception as e:
         print(f"❌ [GlobalSearch] Error: {e}")
         raise HTTPException(status_code=500, detail="Search failed")
+    
+
+from pydantic import BaseModel
+from fastapi import HTTPException
+from datetime import datetime
+import pytz
+
+class DigestRequest(BaseModel):
+    user_id: str
+    local_date: str # Format: YYYY-MM-DD
+    timezone: str = "Europe/London"
+
+@app.post("/api/ai/daily-digest")
+async def generate_daily_digest(req: DigestRequest):
+    try:
+        user_ref = db.collection("users").document(req.user_id)
+        user_tz = pytz.timezone(req.timezone)
+        
+        # 1. Fetch Today's Tasks
+        tasks_ref = user_ref.collection("raw_tasks")
+        tasks_query = tasks_ref.where("due_date", "==", req.local_date).where("status", "in", ["pending", "scheduled"]).stream()
+        
+        today_tasks = []
+        high_risk_tasks = []
+        
+        for doc in tasks_query:
+            t = doc.to_dict()
+            t["id"] = doc.id
+            today_tasks.append(t)
+            
+            # Catch priority 1/2, or "high" strings, or high energy requirements
+            if t.get("priority") in [1, 2, "high", "1", "2"] or t.get("energy_level") == "high":
+                high_risk_tasks.append(t)
+
+        # Sort tasks so high risk are first
+        high_risk_tasks.sort(key=lambda x: str(x.get("priority", "5")))
+
+        # 2. Fetch Today's Events
+        events_ref = user_ref.collection("raw_events")
+        all_events = events_ref.where("status", "==", "synced").stream()
+        
+        today_events = []
+        for doc in all_events:
+            e = doc.to_dict()
+            e["id"] = doc.id
+            start_str = e.get("start", "")
+            
+            # Match the local date string 
+            if req.local_date in start_str:
+                # Convert the ISO UTC string to the user's local time
+                try:
+                    utc_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                    local_dt = utc_dt.astimezone(user_tz)
+                    e["formatted_time"] = local_dt.strftime("%H:%M")
+                except:
+                    e["formatted_time"] = "TBC"
+                
+                today_events.append(e)
+
+        # Sort events chronologically
+        today_events.sort(key=lambda x: x.get("start", ""))
+
+        # 3. Build the Detailed Digest String
+        lines = ["Good morning. Here is your comprehensive briefing for today."]
+        lines.append("") 
+        
+        # --- CALENDAR SECTION ---
+        lines.append("Calendar Schedule:")
+        if not today_events:
+            lines.append("• Your calendar is entirely clear today.")
+        else:
+            if len(today_events) <= 4:
+                for ev in today_events:
+                    lines.append(f"• {ev['formatted_time']} : {ev['title']}")
+            else:
+                lines.append(f"• You have a busy schedule with {len(today_events)} events.")
+                lines.append(f"• Your first meeting is '{today_events[0]['title']}' at {today_events[0]['formatted_time']}.")
+                lines.append(f"• Your final meeting is '{today_events[-1]['title']}' at {today_events[-1]['formatted_time']}.")
+        
+        lines.append("") 
+
+        # --- TASK SECTION ---
+        lines.append("Task Priorities:")
+        if not today_tasks:
+            lines.append("• You have no pending tasks scheduled for today.")
+        else:
+            lines.append(f"• You have {len(today_tasks)} total tasks on your agenda.")
+            
+            if high_risk_tasks:
+                lines.append("• High Priority items requiring your attention:")
+                for i, task in enumerate(high_risk_tasks[:3]):
+                    energy_note = f" (Requires High Energy)" if task.get('energy_level') == 'high' else ""
+                    lines.append(f"  - {task['title']}{energy_note}")
+                
+                if len(high_risk_tasks) > 3:
+                    lines.append(f"  - Plus {len(high_risk_tasks) - 3} additional high-priority items.")
+            else:
+                lines.append("• There are no high-risk items, allowing for a flexible workflow today.")
+
+        digest_text = "\n".join(lines)
+
+        return {
+            "status": "success",
+            "data": {
+                "digest_text": digest_text,
+                "events": today_events,
+                "high_priority_tasks": high_risk_tasks,
+                "total_tasks_count": len(today_tasks)
+            }
+        }
+
+    except Exception as e:
+        print(f"[Daily Digest Error] {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate morning digest")
