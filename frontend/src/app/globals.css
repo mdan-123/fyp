@@ -110,7 +110,7 @@
   /* Accent Colours - Platinum & Silver Gradients */
   --color-accent-primary: #e2e8f0;
   --color-accent-primary-hover: #ffffff;
-  --color-accent-secondary: #cbd5e1;
+  --color-accent-secondary: #cbd5e1;  
   --color-accent-gradient: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
   --color-accent-glow: rgba(226, 232, 240, 0.15);
   
@@ -553,21 +553,21 @@ body::before {
     padding-bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
   }
 }
-
 /* --- Focus Visible (Accessibility) --- */
-:focus-visible {
+/* Apply accessible outlines ONLY to buttons and links */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
 }
 
-/* --- Selection --- */
-::selection {
-  background: rgba(99, 102, 241, 0.25);
-  color: var(--color-text-primary);
-}
-
-.dark ::selection {
-  background: rgba(226, 232, 240, 0.25);
+/* Remove the harsh global outline from text inputs, 
+   allowing custom borders/shadows to handle focus states natively */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
 /* --- Prevent iOS tap highlight --- */

@@ -7,7 +7,7 @@ import TaskModal, { Task } from "@/components/TaskModal";
 import CustomCalendar from "@/components/CustomCalendar";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 import { App as CapacitorApp } from '@capacitor/app'; 
-import GlobalSearch from "@/components/GlobalSearch";
+import GlobalSearchModal from "@/components/GlobalSearchModal";
 import { Capacitor } from '@capacitor/core';
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
@@ -21,6 +21,7 @@ export default function TasksPage() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   
   const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
@@ -770,7 +771,7 @@ export default function TasksPage() {
               <h1 className="text-3xl font-bold tracking-tight transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>Tasks</h1>
               <p className="text-sm font-medium mt-1 transition-colors duration-200" style={{ color: 'var(--color-text-secondary)' }}>{tasks.filter(t => t.status !== "completed" && t.status !== "missed").length} active items</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 justify-end">
               <button 
                 onClick={() => generateTaskSchedulePreview([])}
                 disabled={isGeneratingSchedule}
@@ -778,16 +779,34 @@ export default function TasksPage() {
               >
                 {isGeneratingSchedule ? "..." : "Schedule All"}
               </button>
+              
+              {/* --- SEARCH BUTTON --- */}
+              <button 
+                onClick={() => setIsSearchOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:bg-black/5 dark:hover:bg-white/10"
+                style={{
+                  background: 'var(--color-bg-glass)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                Search
+              </button>
+
+              {/* --- FILTER BUTTON --- */}
               <button 
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all duration-200"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] hover:bg-black/5 dark:hover:bg-white/10"
                 style={{
                   background: isFilterOpen ? 'var(--color-surface-hover)' : 'var(--color-bg-glass)',
                   border: isFilterOpen ? '1px solid var(--color-accent-primary)' : '1px solid var(--color-border)',
                   color: isFilterOpen ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
                 }}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 01-.659 1.591l-5.432 5.432a2.25 2.25 0 00-.659 1.591v2.927a2.25 2.25 0 01-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 00-.659-1.591L3.659 7.409A2.25 2.25 0 013 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0112 3z" />
                 </svg>
                 Filter
@@ -1045,7 +1064,23 @@ export default function TasksPage() {
           onSaveSuccess={() => { fetchTasks(userId); setSelectedTaskIds([]); }} 
         />
       )}
-
+      {userId && (
+        <GlobalSearchModal
+          isOpen={isSearchOpen}
+          onClose={() => setIsSearchOpen(false)}
+          userId={userId}
+          searchType="tasks"
+          placeholder="Search tasks by name..."
+          onResultClick={(result) => {
+            // Find the full task from local state and open the editor
+            const foundTask = tasks.find(t => t.id === result.id);
+            if (foundTask) {
+              setEditingTask(foundTask);
+              setIsModalOpen(true);
+            }
+          }}
+        />
+      )}
       <NavigationBar />
     </div>
   );

@@ -3859,16 +3859,22 @@ async def global_search(req: GlobalSearchRequest):
                     }
 
                     # Add Type-Specific Metadata for the UI
+                    # Add Type-Specific Metadata for the UI
                     if item_type == "event":
                         result_item["start"] = data.get("start")
                         result_item["end"] = data.get("end")
                         result_item["location"] = data.get("location")
+                        result_item["category"] = data.get("category") # 4th trait
                     elif item_type == "task":
                         result_item["due_date"] = data.get("due_date")
                         result_item["priority"] = data.get("priority")
+                        result_item["estimated_duration"] = data.get("estimated_duration")
+                        result_item["energy_level"] = data.get("energy_level") # 4th trait
                     elif item_type == "reminder":
                         result_item["trigger_time"] = data.get("trigger_time")
                         result_item["trigger_type"] = data.get("trigger_type")
+                        result_item["priority"] = data.get("priority") # 3rd trait
+                        result_item["repeat"] = data.get("repeat")     # 4th trait
 
                     results.append(result_item)
 

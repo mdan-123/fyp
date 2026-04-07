@@ -5,6 +5,7 @@ import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "@/lib/AuthContext"; 
 import CustomCalendar from "@/components/CustomCalendar";
+import GlobalSearchModal from "@/components/GlobalSearchModal";
 import EventModal from "@/components/EventModal";
 import NavigationBar from "@/components/NavigationBar";
 import ConflictResolutionModal from "@/components/ConflictResolutionModal";
@@ -37,7 +38,7 @@ export default function Dashboard() {
     const [errorOptimising, setErrorOptimising] = useState<boolean>(false);
 
     const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-    const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+    const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
     const [isOptimisePrepModalOpen, setIsOptimisePrepModalOpen] = useState<boolean>(false);
 
     const [selectedEditEvent, setSelectedEditEvent] = useState<CalendarEvent | null>(null);
@@ -498,6 +499,7 @@ export default function Dashboard() {
           isSyncing={isSyncing || isOptimising}
           onOptimise={handleOptimiseClick}
           isPreviewMode={isPreviewMode}
+          onSearchClick={() => setIsSearchOpen(true)} // <--- ADD THIS ONE LINE!
         />
       </div>
       {/* --- FLOATING ACTION BUTTON (ADD EVENT) --- */}
@@ -592,6 +594,24 @@ export default function Dashboard() {
         editEvent={selectedEditEvent}
         instanceDate={selectedInstanceDate}
       />
+
+      {user?.uid && (
+        <GlobalSearchModal
+          isOpen={isSearchOpen}
+          onClose={() => setIsSearchOpen(false)}
+          userId={user.uid}
+          searchType="events"
+          placeholder="Search calendar events..."
+          onResultClick={(result) => {
+            const foundEvent = events.find(e => e.id === result.id);
+            if (foundEvent) {
+              setSelectedEditEvent(foundEvent);
+              setSelectedInstanceDate(foundEvent.start ? new Date(foundEvent.start) : undefined);
+              setIsModalOpen(true);
+            }
+          }}
+        />
+      )}
 
 
       <OptimisationPrepModal

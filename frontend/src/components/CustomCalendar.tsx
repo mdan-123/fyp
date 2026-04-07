@@ -10,6 +10,7 @@ interface CustomCalendarProps {
   isSyncing: boolean;
   onOptimise: (date: Date) => void;
   isPreviewMode?: boolean;
+  onSearchClick?: () => void; // Added Search Prop
 }
 
 type ViewType = "day" | "week" | "month";
@@ -135,7 +136,7 @@ const getCategoryClass = (category?: string) => {
   }
 };
 
-export default function CustomCalendar({ events, onEventClick, onSync, isSyncing, onOptimise, isPreviewMode = false }: CustomCalendarProps) {
+export default function CustomCalendar({ events, onEventClick, onSync, isSyncing, onOptimise, isPreviewMode = false, onSearchClick }: CustomCalendarProps) {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [view, setView] = useState<ViewType>("week");
   const [weekLayout, setWeekLayout] = useState<WeekLayout>("timeline");
@@ -280,9 +281,25 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
               </svg>
             </h1>
           </div>
-
           {!isPreviewMode && (
             <div className="sm:hidden ml-auto flex items-center gap-2">
+              
+              {/* --- MOBILE SEARCH ICON --- */}
+              {onSearchClick && (
+                <button 
+                  onClick={onSearchClick}
+                  className="p-2.5 rounded-xl transition-all duration-200 active:scale-95"
+                  style={{
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                </button>
+              )}
               <button 
                 onClick={() => onOptimise(currentDate)}
                 className="p-2.5 rounded-xl transition-all duration-200 active:scale-95"
@@ -318,6 +335,20 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
         <div className="hidden sm:flex items-center gap-3">
           {!isPreviewMode && (
             <div className="flex items-center gap-2">
+              
+              {/* --- DESKTOP SEARCH BUTTON --- */}
+              {onSearchClick && (
+                <button 
+                  onClick={onSearchClick}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] btn-secondary"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                  Search
+                </button>
+              )}
+
               <button 
                 onClick={() => onOptimise(currentDate)}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] btn-primary"
