@@ -511,18 +511,36 @@ export default function AnalyticsPage() {
         above the mobile Navigation Bar. 
       */}
       <div className="min-h-screen font-sans pb-36 relative transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
-        
-        <div className="relative z-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 card-reveal" style={{ paddingTop: "calc(env(safe-area-inset-top, 24px) + 24px)", paddingBottom: "24px" }}>
+
+        {/* Standardised Sticky Header */}
+        <div className="sticky top-0 z-30 transition-all duration-300" style={{ background: 'var(--color-bg-glass-strong)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid var(--color-border)' }}>
+          <div className="px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto pt-[calc(env(safe-area-inset-top,24px)+24px)] pb-4 flex items-center justify-between gap-4 transition-colors duration-500">
             <div>
               <h1 className="text-3xl font-bold tracking-tight transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>Analytics</h1>
               <p className="text-sm font-semibold mt-1 transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Behavioral intelligence & risk prediction</p>
             </div>
 
+            {/* Mobile: icon-only */}
             <button
               onClick={handleReclaimTime}
               disabled={isGeneratingSchedule || core_ledgers.active_debt_mins === 0}
-              className="flex items-center justify-center gap-2.5 px-6 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed btn-primary"
+              className="sm:hidden p-2.5 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed btn-primary"
+            >
+              {isGeneratingSchedule ? (
+                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              )}
+            </button>
+            {/* Desktop: full text */}
+            <button
+              onClick={handleReclaimTime}
+              disabled={isGeneratingSchedule || core_ledgers.active_debt_mins === 0}
+              className="hidden sm:flex items-center justify-center gap-2.5 px-6 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed btn-primary"
             >
               {isGeneratingSchedule ? (
                 <span className="tracking-widest animate-pulse">Analysing...</span>
@@ -536,7 +554,9 @@ export default function AnalyticsPage() {
               )}
             </button>
           </div>
+        </div>
 
+        <div className="relative z-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto pt-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <StatCard label="Active Debt" value={formatTime(core_ledgers.active_debt_mins)} sub="Unscheduled rollover tasks" accent="var(--color-accent-primary)" delay={0.1} />
             <StatCard label="Sunk Debt" value={formatTime(core_ledgers.sunk_debt_mins)} sub="Permanently missed routines" accent="var(--color-danger)" delay={0.15} />

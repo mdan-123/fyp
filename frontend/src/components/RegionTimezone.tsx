@@ -94,13 +94,13 @@ export default function RegionTimezone({ userId, onBack }: RegionTimezoneProps) 
     <div className="min-h-screen font-sans flex flex-col pb-32 bg-transparent transition-colors duration-500">
       {/* Header */}
       <div
-        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between transition-colors duration-200"
+        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between"
         style={{ 
-          paddingTop: "calc(env(safe-area-inset-top, 24px) + 50px)",
-          background: 'var(--color-bg-glass-strong)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid var(--color-border)',
+          paddingTop: "calc(env(safe-area-inset-top, 20px) + 8px)",
+          background: 'var(--color-bg-glass)',
+          backdropFilter: 'blur(var(--blur-lg))',
+          WebkitBackdropFilter: 'blur(var(--blur-lg))',
+          borderBottom: '1px solid var(--color-border)'
         }}
       >
         <button

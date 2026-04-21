@@ -287,7 +287,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="p-4 mb-24 md:mb-4 space-y-3">
+        <div className="p-4 mb-36 md:mb-4 space-y-3">
           <button
             onClick={toggleTheme}
             className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl transition-all duration-200 hover:scale-[1.01] active:scale-[0.99]"

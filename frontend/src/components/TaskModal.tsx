@@ -445,6 +445,8 @@ export default function TaskModal({
         background: 'rgba(0, 0, 0, 0.6)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
+        touchAction: 'pan-y',
+        overflowX: 'hidden',
       }}
       onClick={onClose} 
     >
@@ -480,7 +482,7 @@ export default function TaskModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-8 scrollbar-hide">
           
           <div className="space-y-4">
             <input 
@@ -630,7 +632,7 @@ export default function TaskModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Energy Required</span>
               <div 
@@ -660,12 +662,12 @@ export default function TaskModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-2">
               <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Start Date</span>
               <input 
                 type="datetime-local" 
-                className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
+                className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
               />
@@ -674,7 +676,7 @@ export default function TaskModal({
               <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Due Date</span>
               <input 
                 type="datetime-local" 
-                className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
+                className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
@@ -858,9 +860,9 @@ export default function TaskModal({
                 </div>
 
                 {newRemTriggerType === "time" ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <input type="date" className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemDate} onChange={(e) => setNewRemDate(e.target.value)} />
-                    <input type="time" className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemTime} onChange={(e) => setNewRemTime(e.target.value)} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="date" className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemDate} onChange={(e) => setNewRemDate(e.target.value)} />
+                    <input type="time" className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemTime} onChange={(e) => setNewRemTime(e.target.value)} />
                   </div>
                 ) : (
                   <div className="space-y-3">

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+
 import { LinkedAccount } from "../types";
 import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
@@ -41,10 +40,10 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
   const fetchAccounts = async () => {
     if (!userId) return;
     try {
-      const userRef = doc(db, "users", userId);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        setAccounts(userSnap.data().linked_accounts || []);
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(data.linked_accounts || []);
       }
     } catch (error) {
       console.error("Failed to load accounts:", error);
@@ -109,20 +108,24 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
         }
 
         const checkInterval = setInterval(async () => {
-           const updatedRef = doc(db, "users", userId);
-           const updatedSnap = await getDoc(updatedRef);
-           if (updatedSnap.exists()) {
-             const updatedData = updatedSnap.data().linked_accounts || [];
-             if (updatedData.length > accounts.length) {
+          try {
+            const pollRes = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`);
+            if (pollRes.ok) {
+              const pollData = await pollRes.json();
+              const updatedData = pollData.linked_accounts || [];
+              if (updatedData.length > accounts.length) {
                 setAccounts(updatedData);
                 clearInterval(checkInterval);
                 if (isNative) {
-                  await Browser.close(); 
+                  await Browser.close();
                 } else if (popupWindow) {
                   popupWindow.close();
                 }
-             }
-           }
+              }
+            }
+          } catch (e) {
+            console.error("Polling linked accounts failed:", e);
+          }
         }, 2000);
         
         setTimeout(() => {
@@ -144,13 +147,13 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
     <div className="min-h-screen font-sans flex flex-col pb-32 bg-transparent transition-colors duration-500">
       
       <div
-        className="sticky top-0 z-10 px-4 pb-3 flex items-center justify-between transition-colors duration-200"
+        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between"
         style={{ 
-          paddingTop: "calc(env(safe-area-inset-top, 24px) + 50px)",
-          background: 'var(--color-bg-glass-strong)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid var(--color-border)',
+          paddingTop: "calc(env(safe-area-inset-top, 20px) + 8px)",
+          background: 'var(--color-bg-glass)',
+          backdropFilter: 'blur(var(--blur-lg))',
+          WebkitBackdropFilter: 'blur(var(--blur-lg))',
+          borderBottom: '1px solid var(--color-border)'
         }}
       >
         <button
@@ -161,7 +164,7 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
           <span className="text-2xl leading-none">‹</span> Settings
         </button>
 
-        <span className="text-[15px] font-semibold truncate px-4 transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>
+        <span className="text-[15px] font-bold truncate px-4" style={{ color: 'var(--color-text-primary)' }}>
           Linked Accounts
         </span>
 

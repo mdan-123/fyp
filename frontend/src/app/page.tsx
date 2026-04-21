@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
-import { db } from "../lib/firebase";
+
 import { useAuth } from "@/lib/AuthContext"; 
 import CustomCalendar from "@/components/CustomCalendar";
 import GlobalSearchModal from "@/components/GlobalSearchModal";
@@ -133,12 +132,11 @@ export default function Dashboard() {
     const fetchUserData = async (uid: string) => {
       setIsLoading(true);
       try {
-        const userRef = doc(db, "users", uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          setLinkedAccounts(userData.linked_accounts || []);
-          setPreferences(userData.preferences || []);
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/users/profile/${uid}`);
+        if (res.ok) {
+          const data = await res.json();
+          setLinkedAccounts(data.linked_accounts || []);
+          setPreferences(data.preferences || []);
         }
         await fetchEvents(uid);
       } catch (error) {
@@ -153,57 +151,52 @@ export default function Dashboard() {
     if (!targetUid) return;
 
     try {
-      const eventsRef = collection(db, "users", targetUid, "raw_events");
-      const eventsSnap = await getDocs(eventsRef);
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/events/${targetUid}`);
+      const json = await res.json();
 
-      const loadedEvents: CalendarEvent[] = [];
-      eventsSnap.forEach((docSnap) => {
-        const data = docSnap.data();
-        loadedEvents.push({
-          id: docSnap.id,
-          title: data.title || "Untitled",
+      const loadedEvents: CalendarEvent[] = (json.events || []).map((data: any) => ({
+        id: data.id,
+        title: data.title || "Untitled",
 
-          start: data.start,
-          end: data.end,
-          original_start: data.original_start || data.start || "",
-          original_end: data.original_end || data.end || "",
-          previous_start: data.previous_start ?? null,
-          previous_end: data.previous_end ?? null,
-          proposed_start: data.proposed_start ?? null,
-          proposed_end: data.proposed_end ?? null,
+        start: data.start,
+        end: data.end,
+        original_start: data.original_start || data.start || "",
+        original_end: data.original_end || data.end || "",
+        previous_start: data.previous_start ?? null,
+        previous_end: data.previous_end ?? null,
+        proposed_start: data.proposed_start ?? null,
+        proposed_end: data.proposed_end ?? null,
 
-          provider: data.provider || "custom",
-          has_drifted: data.has_drifted || false,
-          requires_review: data.requires_review || false,
-          status: data.status || "synced",
-          category: data.category || null,
+        provider: data.provider || "custom",
+        has_drifted: data.has_drifted || false,
+        requires_review: data.requires_review || false,
+        status: data.status || "synced",
+        category: data.category || null,
 
-          is_locked: data.is_locked ?? true,
+        is_locked: data.is_locked ?? true,
 
-          travel_time: data.travel_time || 0,
-          travel_origin: data.travel_origin || null,
-          travel_mode: data.travel_mode || "driving",
+        travel_time: data.travel_time || 0,
+        travel_origin: data.travel_origin || null,
+        travel_mode: data.travel_mode || "driving",
 
-          recurrence: data.recurrence || "none",
-          recurrence_days: data.recurrence_days || [],
-          exception_dates: data.exception_dates || [],
-          parent_event_id: data.parent_event_id || null,
+        recurrence: data.recurrence || "none",
+        recurrence_days: data.recurrence_days || [],
+        exception_dates: data.exception_dates || [],
+        parent_event_id: data.parent_event_id || null,
 
-          meeting_link: data.meeting_link || null,
-          location: data.location || null,
-          description: data.description || null,
-          email: data.email || "",
-          attachments: data.attachments || [],
+        meeting_link: data.meeting_link || null,
+        location: data.location || null,
+        description: data.description || null,
+        email: data.email || "",
+        attachments: data.attachments || [],
 
-          // --- TELEMETRY MAPPING ---
-          completion_status: data.completion_status || "pending",
-          snooze_count: data.snooze_count || 0,
-          completed_at: data.completed_at || null,
-          debt_applied: data.debt_applied || false,
-          is_perishable: data.is_perishable || false,
-          
-        } as CalendarEvent);
-      });
+        // --- TELEMETRY MAPPING ---
+        completion_status: data.completion_status || "pending",
+        snooze_count: data.snooze_count || 0,
+        completed_at: data.completed_at || null,
+        debt_applied: data.debt_applied || false,
+        is_perishable: data.is_perishable || false,
+      } as CalendarEvent));
 
       setEvents(loadedEvents);
     } catch (error) {
@@ -533,7 +526,7 @@ export default function Dashboard() {
             setSelectedInstanceDate(undefined);
             setIsModalOpen(true);
           }}
-          className="fixed bottom-28 right-6 w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-all duration-300 z-40 btn-primary"
+          className="fixed bottom-36 right-6 w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-all duration-300 z-40 btn-primary"
           style={{ padding: 0 }}
         >
           <svg 

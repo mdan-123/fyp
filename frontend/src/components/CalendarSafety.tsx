@@ -41,48 +41,44 @@ export default function CalendarSafety({ userId, onBack }: CalendarSafetyProps) 
   };
 
   return (
-    <div className="h-full flex flex-col relative bg-transparent transition-colors duration-500">
-      
-      {/* Mobile Header with Back Button */}
-      <div 
-        className="md:hidden flex items-center gap-3 px-4 py-4 sticky top-0 z-10 transition-colors duration-200"
-        style={{
-          background: 'var(--color-bg-glass-strong)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-          borderBottom: '1px solid var(--color-border)',
+    <div className="min-h-screen font-sans flex flex-col pb-32 bg-transparent transition-colors duration-500">
+
+      {/* Header */}
+      <div
+        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between"
+        style={{ 
+          paddingTop: "calc(env(safe-area-inset-top, 20px) + 8px)",
+          background: 'var(--color-bg-glass)',
+          backdropFilter: 'blur(var(--blur-lg))',
+          WebkitBackdropFilter: 'blur(var(--blur-lg))',
+          borderBottom: '1px solid var(--color-border)'
         }}
       >
-        <button 
+        <button
           onClick={onBack}
-          className="p-2 -ml-2 rounded-xl transition-all duration-200 active:scale-95"
+          className="flex items-center gap-1 text-[16px] font-semibold transition-colors active:opacity-50"
           style={{ color: 'var(--color-accent-primary)' }}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
+          <span className="text-2xl leading-none">‹</span> Settings
         </button>
-        <h2 className="text-lg font-semibold transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>
+        <span className="text-[15px] font-bold truncate px-4" style={{ color: 'var(--color-text-primary)' }}>
           Safety & Rollback
-        </h2>
-      </div>
-
-      {/* Desktop Header */}
-      <div 
-        className="hidden md:block px-8 py-10 transition-colors duration-200"
-        style={{ borderBottom: '1px solid var(--color-border)' }}
-      >
-        <h2 className="text-2xl font-bold tracking-tight transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>
-          Calendar Safety & Rollback
-        </h2>
-        <p className="mt-2 text-sm max-w-2xl leading-relaxed transition-colors duration-200" style={{ color: 'var(--color-text-secondary)' }}>
-          Whenever the AI optimises your schedule, we save a complete snapshot of how your calendar looked right before the changes were applied. If you change your mind, you can instantly revert everything back.
-        </p>
+        </span>
+        <div className="w-16"></div>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 p-4 md:p-8 overflow-y-auto scrollbar-hide">
-        <div className="max-w-3xl space-y-6">
+      <div className="flex-1 px-4 py-8 md:px-10 overflow-y-auto scrollbar-hide">
+        <div className="max-w-3xl w-full mx-auto space-y-6">
+
+          <div className="space-y-2 text-center md:text-left">
+            <h2 className="text-3xl font-extrabold tracking-tight transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>
+              Calendar Safety & Rollback
+            </h2>
+            <p className="text-sm max-w-xl transition-colors duration-200" style={{ color: 'var(--color-text-secondary)' }}>
+              Whenever the AI optimises your schedule, we save a complete snapshot of how your calendar looked right before the changes were applied. If you change your mind, you can instantly revert everything back.
+            </p>
+          </div>
           
           <div 
             className="p-5 md:p-6 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 transition-all duration-200"

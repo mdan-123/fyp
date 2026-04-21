@@ -500,6 +500,8 @@ export default function EventModal({
         background: 'rgba(0, 0, 0, 0.6)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
+        touchAction: 'pan-y',
+        overflowX: 'hidden',
       }}
     >
       <div 
@@ -532,7 +534,7 @@ export default function EventModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-8 scrollbar-hide">
           
           {editEvent && editEvent.recurrence !== 'none' && (
             <div 
@@ -638,15 +640,15 @@ export default function EventModal({
               <div className="space-y-2">
                 <span className="text-[10px] uppercase tracking-widest px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Starts</span>
                 <div className="flex flex-col gap-2">
-                  <input type="date" value={startDate} onChange={(e) => handleStartChange(e.target.value, startTime)} className="w-full rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
-                  <input type="time" value={startTime} onChange={(e) => handleStartChange(startDate, e.target.value)} className="w-full rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
+                  <input type="date" value={startDate} onChange={(e) => handleStartChange(e.target.value, startTime)} className="w-full min-w-0 rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
+                  <input type="time" value={startTime} onChange={(e) => handleStartChange(startDate, e.target.value)} className="w-full min-w-0 rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
                 </div>
               </div>
               <div className="space-y-2">
                 <span className="text-[10px] uppercase tracking-widest px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Ends</span>
                 <div className="flex flex-col gap-2">
-                  <input type="date" value={endDate} onChange={(e) => handleEndChange(e.target.value, endTime)} className="w-full rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
-                  <input type="time" value={endTime} onChange={(e) => handleEndChange(endDate, e.target.value)} className="w-full rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
+                  <input type="date" value={endDate} onChange={(e) => handleEndChange(e.target.value, endTime)} className="w-full min-w-0 rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
+                  <input type="time" value={endTime} onChange={(e) => handleEndChange(endDate, e.target.value)} className="w-full min-w-0 rounded-xl text-sm py-3 px-4 outline-none transition-all input-glass" />
                 </div>
               </div>
             </div>
@@ -916,7 +918,7 @@ export default function EventModal({
                   </div>
 
                   {newRemTriggerType === "time" ? (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input type="date" className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemDate} onChange={(e) => setNewRemDate(e.target.value)} />
                       <input type="time" className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass" value={newRemTime} onChange={(e) => setNewRemTime(e.target.value)} />
                     </div>

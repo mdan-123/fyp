@@ -282,6 +282,20 @@ body::before {
   color: var(--color-text-primary);
   transition: all var(--transition-base);
   outline: none;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Prevent native iOS date/time inputs from overflowing their container */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .input-glass::placeholder {

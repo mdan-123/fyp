@@ -614,20 +614,22 @@ export default function ChatPage() {
       {/* Main Chat Area */}
       <main className="flex-1 flex flex-col h-[100dvh] transition-all duration-300 w-full pb-24">
 
-        {/* NEW: Updated Header matching Analytics / Tasks standard */}
-        <div className="w-full max-w-4xl mx-auto px-4 md:px-6 pt-[calc(env(safe-area-inset-top,24px)+24px)] pb-6 flex items-center gap-4 animate-fade-in-up">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center transition-colors duration-500 flex-shrink-0"
-            style={{ background: "var(--color-accent-gradient)", boxShadow: "var(--shadow-md)" }}
-          >
-            <svg className="w-7 h-7" style={{ color: "var(--color-bg-base)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.125 9.375l-.469-1.641a2.25 2.25 0 00-1.546-1.546l-1.641-.469 1.641-.469a2.25 2.25 0 001.546-1.546l.469-1.641.469 1.641a2.25 2.25 0 001.546 1.546l1.641.469-1.641.469a2.25 2.25 0 00-1.546 1.546l-.469 1.641z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>Assistant</h1>
-            <p className="text-sm font-semibold mt-1 transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Scheduling & Intelligence</p>
+        {/* Standardised Sticky Header */}
+        <div className="sticky top-0 z-30 transition-all duration-300" style={{ background: 'var(--color-bg-glass-strong)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderBottom: '1px solid var(--color-border)' }}>
+          <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,24px)+24px)] pb-4 flex items-center gap-4 transition-colors duration-500">
+            <div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center transition-colors duration-500 flex-shrink-0"
+              style={{ background: "var(--color-accent-gradient)", boxShadow: "var(--shadow-md)" }}
+            >
+              <svg className="w-6 h-6" style={{ color: "var(--color-bg-base)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.125 9.375l-.469-1.641a2.25 2.25 0 00-1.546-1.546l-1.641-.469 1.641-.469a2.25 2.25 0 001.546-1.546l.469-1.641.469 1.641a2.25 2.25 0 001.546 1.546l1.641.469-1.641.469a2.25 2.25 0 00-1.546 1.546l-.469 1.641z" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight transition-colors duration-200" style={{ color: "var(--color-text-primary)" }}>Assistant</h1>
+              <p className="text-sm font-semibold mt-1 transition-colors duration-200" style={{ color: "var(--color-text-secondary)" }}>Scheduling & Intelligence</p>
+            </div>
           </div>
         </div>
 
@@ -635,7 +637,7 @@ export default function ChatPage() {
         <div
           className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-6 w-full max-w-4xl mx-auto"
         >
-          <div className="w-full flex flex-col pb-4">
+          <div className="w-full flex flex-col pb-4 pt-5">
             {/* History loading skeleton */}
             {!historyLoaded && (
               <div className="flex flex-col gap-4 mb-4">

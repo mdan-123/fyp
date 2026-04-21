@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+
 import { fetchLocationPredictions } from "@/lib/places";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 
@@ -204,19 +203,17 @@ export default function RemindersModal({
         setAvailableTasks(data.tasks?.filter((t: any) => t.status !== "completed") || []);
       }
 
-      const eventsRef = collection(db, "users", userId, "raw_events");
-      const eventsSnap = await getDocs(eventsRef);
-      const loadedEvents: any[] = [];
-      
-      eventsSnap.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (!data.is_ghost) {
-          loadedEvents.push({ id: docSnap.id, ...data });
-        }
+      const eventsRes = await fetchWithRetry(`${API_BASE_URL}/api/calendar/events/${userId}`, {
+        method: "GET",
+        timeoutMs: 8000
       });
-      
-      loadedEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
-      setAvailableEvents(loadedEvents);
+      if (eventsRes.ok) {
+        const eventsData = await eventsRes.json();
+        const loadedEvents = (eventsData.events || [])
+          .filter((e: any) => !e.is_ghost)
+          .sort((a: any, b: any) => new Date(a.start).getTime() - new Date(b.start).getTime());
+        setAvailableEvents(loadedEvents);
+      }
 
     } catch (error) {
       console.error("Failed to fetch linkable items", error);
@@ -369,6 +366,8 @@ export default function RemindersModal({
         background: 'rgba(0, 0, 0, 0.6)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
+        touchAction: 'pan-y',
+        overflowX: 'hidden',
       }}
       onClick={onClose} 
     >
@@ -404,7 +403,7 @@ export default function RemindersModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-8 scrollbar-hide">
           
           <div className="space-y-4">
             <input 
@@ -528,7 +527,7 @@ export default function RemindersModal({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Trigger By</span>
               <div 
@@ -560,12 +559,12 @@ export default function RemindersModal({
           </div>
 
           {(triggerType === "time" || triggerType === "time_and_location") && (
-            <div className="grid grid-cols-2 gap-4 animate-fadeIn">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fadeIn">
               <div className="space-y-2">
                 <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Date</span>
                 <input 
                   type="date" 
-                  className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
+                  className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
                   value={triggerDate}
                   onChange={(e) => setTriggerDate(e.target.value)}
                 />
@@ -574,7 +573,7 @@ export default function RemindersModal({
                 <span className="text-[10px] uppercase tracking-widest font-semibold px-1 transition-colors duration-200" style={{ color: 'var(--color-text-tertiary)' }}>Time</span>
                 <input 
                   type="time" 
-                  className="w-full text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
+                  className="w-full min-w-0 text-sm rounded-xl px-4 py-3 outline-none transition-all input-glass"
                   value={triggerTime}
                   onChange={(e) => setTriggerTime(e.target.value)}
                 />

@@ -1152,6 +1152,23 @@ async def sync_calendar(request: SyncRequest):
     }
 
 
+@app.get("/api/calendar/events/{user_id}")
+async def list_events(user_id: str):
+    try:
+        events_ref = db.collection("users").document(user_id).collection("raw_events")
+        docs = events_ref.stream()
+
+        events = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id  # Guarantee Firestore doc ID is always present
+            events.append(data)
+
+        return {"status": "success", "events": events}
+    except Exception as e:
+        print(f"Error listing events for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch events")
+
 
 from pydantic import BaseModel
 
@@ -3719,6 +3736,50 @@ async def update_user_timezone(req: TimezoneUpdateRequest):
     except Exception as e:
         print(f"❌ [Timezone Update Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/users/profile/{user_id}")
+async def get_user_profile(user_id: str):
+    try:
+        user_doc = db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            raise HTTPException(status_code=404, detail="User not found")
+        data = user_doc.to_dict()
+        return {
+            "status": "success",
+            "linked_accounts": [
+                {"provider": acc.get("provider"), "email": acc.get("email")}
+                for acc in data.get("linked_accounts", [])
+            ],
+            "preferences": data.get("preferences", []),
+            "timezone": data.get("timezone", "UTC"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching profile for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch user profile")
+
+
+@app.get("/api/users/linked-accounts/{user_id}")
+async def get_linked_accounts(user_id: str):
+    try:
+        user_doc = db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            raise HTTPException(status_code=404, detail="User not found")
+        accounts = user_doc.to_dict().get("linked_accounts", [])
+        return {
+            "status": "success",
+            "linked_accounts": [
+                {"provider": acc.get("provider"), "email": acc.get("email")}
+                for acc in accounts
+            ],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching linked accounts for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch linked accounts")
 
 
 def get_user_timezone(user_id: str) -> zoneinfo.ZoneInfo:

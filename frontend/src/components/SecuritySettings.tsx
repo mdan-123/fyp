@@ -168,9 +168,10 @@ export default function SecuritySettings({ userId, onBack }: SecuritySettingsPro
       <div
         className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between"
         style={{ 
-          paddingTop: "calc(env(safe-area-inset-top, 24px) + 24px)",
+          paddingTop: "calc(env(safe-area-inset-top, 20px) + 8px)",
           background: 'var(--color-bg-glass)',
           backdropFilter: 'blur(var(--blur-lg))',
+          WebkitBackdropFilter: 'blur(var(--blur-lg))',
           borderBottom: '1px solid var(--color-border)'
         }}
       >
