@@ -54,43 +54,41 @@ export default function ConflictResolutionModal({
   const isSync = conflictType === "sync";
 
   return (
-    <div 
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 font-sans animate-fadeIn"
-      style={{
-        background: 'rgba(15, 23, 42, 0.4)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-      }}
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+      style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
     >
-      <div 
-        className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden animate-fadeInUp"
+      <div
+        className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden animate-fade-in-up"
         style={{
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(148, 163, 184, 0.1)',
+          background: 'var(--color-bg-glass-strong)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid var(--color-border)',
+          boxShadow: 'var(--shadow-xl)',
+          maxHeight: '90vh',
         }}
       >
-        
+
         {/* Header */}
-        <div 
-          className="px-6 py-5 flex items-start justify-between"
+        <div
+          className="px-6 py-5 flex items-start justify-between flex-shrink-0"
           style={{
-            background: isSync ? 'rgba(255, 251, 235, 0.5)' : 'rgba(254, 242, 242, 0.5)',
-            borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+            background: isSync ? 'var(--color-warning-bg)' : 'var(--color-danger-bg)',
+            borderBottom: '1px solid var(--color-border)',
           }}
         >
           <div className="flex gap-3 items-center">
-            <div 
+            <div
               className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-              style={isSync ? {
-                background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+              style={{
+                background: isSync
+                  ? 'linear-gradient(135deg, var(--color-warning) 0%, #d97706 100%)'
+                  : 'linear-gradient(135deg, var(--color-danger) 0%, #dc2626 100%)',
                 color: 'white',
-                boxShadow: '0 4px 12px -2px rgba(245, 158, 11, 0.4)',
-              } : {
-                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                color: 'white',
-                boxShadow: '0 4px 12px -2px rgba(239, 68, 68, 0.4)',
+                boxShadow: isSync
+                  ? '0 4px 12px -2px rgba(245, 158, 11, 0.35)'
+                  : '0 4px 12px -2px rgba(239, 68, 68, 0.35)',
               }}
             >
               {isSync ? (
@@ -104,15 +102,19 @@ export default function ConflictResolutionModal({
               )}
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-800 leading-tight">
+              <h2 className="text-lg font-bold leading-tight" style={{ color: 'var(--color-text-primary)' }}>
                 {isSync ? "Resolve Conflict" : "Double Booking Detected"}
               </h2>
-              <p className="text-sm font-medium mt-0.5" style={{ color: isSync ? '#d97706' : '#dc2626' }}>
+              <p className="text-sm font-medium mt-0.5" style={{ color: isSync ? 'var(--color-warning)' : 'var(--color-danger)' }}>
                 {conflictCount > 1 ? `Conflict ${currentIndex + 1} of ${conflictCount}` : "Decision Required"}
               </p>
             </div>
           </div>
-          <button onClick={onDismiss} className="text-slate-400 hover:text-slate-600 transition-colors p-1">
+          <button
+            onClick={onDismiss}
+            className="p-1 rounded-lg transition-colors"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -121,48 +123,53 @@ export default function ConflictResolutionModal({
 
         {/* BODY: OVERLAP VIEW */}
         {!isSync && (
-          <div 
-            className="p-6 space-y-4 overflow-y-auto max-h-[60vh]"
-            style={{ background: 'rgba(248, 250, 252, 0.5)' }}
-          >
-            <p className="text-sm text-slate-600 mb-2">These events are competing for the same time slot.</p>
+          <div className="p-6 space-y-4 overflow-y-auto scrollbar-hide flex-1">
+            <p className="text-sm mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+              These events are competing for the same time slot.
+            </p>
             {[event, ...overlappingEvents].map((ev, idx) => (
-              <div 
-                key={ev.id} 
+              <div
+                key={ev.id}
                 className="p-4 rounded-xl relative overflow-hidden flex flex-col gap-3"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  border: '1px solid rgba(148, 163, 184, 0.2)',
-                  boxShadow: '0 4px 12px -4px rgba(0, 0, 0, 0.05)',
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
-                <div 
+                <div
                   className="absolute top-0 left-0 w-1 h-full"
-                  style={{ background: 'linear-gradient(180deg, #ef4444 0%, #dc2626 100%)' }}
+                  style={{ background: 'linear-gradient(180deg, var(--color-danger) 0%, #dc2626 100%)' }}
                 />
-                <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Event {idx + 1}</p>
-                  <h3 className="text-base font-bold text-slate-800">{ev.title}</h3>
-                  <p className="text-sm font-medium text-slate-500 mt-1">{formatTime(ev.start)} — {formatTime(ev.end)}</p>
+                <div className="pl-2">
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Event {idx + 1}
+                  </p>
+                  <h3 className="text-base font-bold mt-0.5" style={{ color: 'var(--color-text-primary)' }}>{ev.title}</h3>
+                  <p className="text-sm font-medium mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    {formatTime(ev.start)} — {formatTime(ev.end)}
+                  </p>
                 </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => onManualEdit(ev)} 
+                <div className="flex gap-2 pl-2">
+                  <button
+                    onClick={() => onManualEdit(ev)}
                     className="flex-1 py-2 font-bold text-xs rounded-lg transition-all"
                     style={{
-                      background: 'rgba(238, 242, 255, 0.8)',
-                      color: '#6366f1',
+                      background: 'var(--color-accent-glow)',
+                      color: 'var(--color-accent-primary)',
+                      border: '1px solid var(--color-border-accent)',
                     }}
                   >
                     Edit Time
                   </button>
                   {onDeleteEvent && (
-                    <button 
-                      onClick={() => { onDeleteEvent(ev.id); onDismiss(); }} 
+                    <button
+                      onClick={() => { onDeleteEvent(ev.id); onDismiss(); }}
                       className="flex-1 py-2 font-bold text-xs rounded-lg transition-all"
                       style={{
-                        background: 'rgba(254, 242, 242, 0.8)',
-                        color: '#ef4444',
+                        background: 'var(--color-danger-bg)',
+                        color: 'var(--color-danger)',
+                        border: '1px solid var(--color-border)',
                       }}
                     >
                       Delete Event
@@ -174,159 +181,147 @@ export default function ConflictResolutionModal({
           </div>
         )}
 
-        {/* BODY: SYNC DRIFT VIEW (Your Original Code) */}
+        {/* BODY: SYNC DRIFT VIEW */}
         {isSync && (
           <>
-            <div className="p-6 space-y-6 overflow-y-auto max-h-[60vh]">
+            <div className="p-6 space-y-6 overflow-y-auto scrollbar-hide flex-1">
               <div className="space-y-1">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Event Name</p>
-                <h3 className="text-xl font-semibold text-slate-800">{event.title}</h3>
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Event Name
+                </p>
+                <h3 className="text-xl font-semibold" style={{ color: 'var(--color-text-primary)' }}>{event.title}</h3>
               </div>
 
               <div className="flex flex-col gap-3">
-                {/* 1. External Calendar Time (The Drift) */}
-                <div 
+                {/* 1. External Calendar Time */}
+                <div
                   className="p-4 rounded-xl relative overflow-hidden"
                   style={{
-                    background: 'rgba(239, 246, 255, 0.6)',
-                    border: '1px solid rgba(59, 130, 246, 0.2)',
+                    background: 'var(--color-info-bg)',
+                    border: '1px solid var(--color-border)',
                   }}
                 >
-                  <div 
+                  <div
                     className="absolute top-0 left-0 w-1 h-full"
-                    style={{ background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)' }}
+                    style={{ background: 'linear-gradient(180deg, var(--color-info) 0%, #2563eb 100%)' }}
                   />
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: '#2563eb' }}>
+                  <div className="flex justify-between items-center mb-2 pl-2">
+                    <span className="text-xs font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: 'var(--color-info)' }}>
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
                       </svg>
                       New {event.provider.toUpperCase()} Time
                     </span>
                   </div>
-                  <p className="text-slate-800 font-semibold">{formatDate(event.original_start)}</p>
-                  <p className="text-slate-600 text-sm">{formatTime(event.original_start)} — {formatTime(event.original_end)}</p>
+                  <p className="font-semibold pl-2" style={{ color: 'var(--color-text-primary)' }}>{formatDate(event.original_start)}</p>
+                  <p className="text-sm pl-2" style={{ color: 'var(--color-text-secondary)' }}>{formatTime(event.original_start)} — {formatTime(event.original_end)}</p>
                 </div>
 
-                {/* 2. Previous Original Time (Baseline) */}
+                {/* 2. Previous Baseline */}
                 {event.previous_start && (
-                  <div 
-                    className="p-4 rounded-xl relative overflow-hidden opacity-80"
+                  <div
+                    className="p-4 rounded-xl relative overflow-hidden opacity-75"
                     style={{
-                      background: 'rgba(248, 250, 252, 0.8)',
-                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      background: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border-subtle)',
                     }}
                   >
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                      <span className="text-xs font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: 'var(--color-text-tertiary)' }}>
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Previous Baseline
                       </span>
                     </div>
-                    <p className="text-slate-700 font-medium">{formatDate(event.previous_start)}</p>
-                    <p className="text-slate-500 text-sm">{formatTime(event.previous_start)} — {formatTime(event.previous_end || null)}</p>
+                    <p className="font-medium" style={{ color: 'var(--color-text-secondary)' }}>{formatDate(event.previous_start)}</p>
+                    <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>{formatTime(event.previous_start)} — {formatTime(event.previous_end || null)}</p>
                   </div>
                 )}
 
                 {/* 3. AI Proposed Time */}
                 {event.proposed_start && (
-                  <div 
+                  <div
                     className="p-4 rounded-xl relative overflow-hidden"
                     style={{
-                      background: 'rgba(238, 242, 255, 0.6)',
-                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                      background: 'var(--color-accent-glow)',
+                      border: '1px solid var(--color-border-accent)',
                     }}
                   >
-                    <div 
+                    <div
                       className="absolute top-0 left-0 w-1 h-full"
-                      style={{ background: 'linear-gradient(180deg, #6366f1 0%, #8b5cf6 100%)' }}
+                      style={{ background: 'var(--color-accent-gradient)' }}
                     />
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: '#6366f1' }}>
+                    <div className="flex justify-between items-center mb-2 pl-2">
+                      <span className="text-xs font-bold uppercase tracking-widest flex items-center gap-1.5" style={{ color: 'var(--color-accent-primary)' }}>
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                         </svg>
                         Current AI Plan
                       </span>
                     </div>
-                    <p className="text-slate-800 font-semibold">{formatDate(event.proposed_start)}</p>
-                    <p className="text-slate-600 text-sm">{formatTime(event.proposed_start)} — {formatTime(event.proposed_end)}</p>
+                    <p className="font-semibold pl-2" style={{ color: 'var(--color-text-primary)' }}>{formatDate(event.proposed_start)}</p>
+                    <p className="text-sm pl-2" style={{ color: 'var(--color-text-secondary)' }}>{formatTime(event.proposed_start)} — {formatTime(event.proposed_end)}</p>
                   </div>
                 )}
               </div>
             </div>
 
             {/* Actions Footer */}
-            <div className="p-6 pt-0 space-y-2.5">
-              <button 
+            <div className="p-6 pt-0 space-y-2.5 flex-shrink-0">
+              <button
                 onClick={() => onAcceptExternal(event.id)}
-                className="w-full flex items-center justify-between px-5 py-3 text-white font-semibold rounded-xl transition-all"
-                style={{
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  boxShadow: '0 4px 20px -4px rgba(99, 102, 241, 0.5)',
-                }}
+                className="btn-primary w-full flex items-center justify-between px-5 py-3 font-semibold rounded-xl transition-all"
               >
                 <div className="flex flex-col text-left">
                   <span className="text-sm">Accept New External Time</span>
-                  <span className="text-[10px] font-medium" style={{ color: 'rgba(255, 255, 255, 0.7)' }}>Syncs your database with the calendar update.</span>
+                  <span className="text-[10px] font-medium opacity-70">Syncs your database with the calendar update.</span>
                 </div>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
               </button>
 
               {event.proposed_start && (
-                <button 
+                <button
                   onClick={() => onKeepProposed(event.id)}
-                  className="w-full flex items-center justify-between px-5 py-3 text-slate-800 font-semibold rounded-xl transition-all"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.9)',
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                  }}
+                  className="btn-secondary w-full flex items-center justify-between px-5 py-3 font-semibold rounded-xl"
                 >
                   <div className="flex flex-col text-left">
                     <span className="text-sm">Keep AI Plan</span>
-                    <span className="text-[10px] font-medium text-slate-500">Requires pushing a change back to your calendar.</span>
+                    <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Requires pushing a change back to your calendar.</span>
                   </div>
-                  <svg className="w-5 h-5" style={{ color: '#6366f1' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                  <svg className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--color-accent-primary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
                 </button>
               )}
 
               {event.previous_start && (
-                <button 
+                <button
                   onClick={() => onRevertToOriginal(event.id)}
-                  className="w-full flex items-center justify-between px-5 py-3 text-slate-800 font-semibold rounded-xl transition-all"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.9)',
-                    border: '1px solid rgba(148, 163, 184, 0.2)',
-                  }}
+                  className="btn-secondary w-full flex items-center justify-between px-5 py-3 font-semibold rounded-xl"
                 >
                   <div className="flex flex-col text-left">
                     <span className="text-sm">Restore Previous Baseline</span>
-                    <span className="text-[10px] font-medium text-slate-500">Ignores the external update and reverts to old time.</span>
+                    <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>Ignores the external update and reverts to old time.</span>
                   </div>
-                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+                  <svg className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                  </svg>
                 </button>
               )}
 
               <div className="flex gap-2 pt-1">
-                <button 
+                <button
                   onClick={() => onManualEdit(event)}
-                  className="flex-1 py-2.5 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2"
-                  style={{
-                    background: 'rgba(248, 250, 252, 0.8)',
-                    color: '#64748b',
-                  }}
+                  className="btn-ghost flex-1 py-2.5 font-bold text-xs rounded-lg flex items-center justify-center gap-2"
                 >
                   Manual Edit
                 </button>
-                <button 
+                <button
                   onClick={onDismiss}
-                  className="flex-1 py-2.5 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2"
-                  style={{
-                    background: 'rgba(248, 250, 252, 0.8)',
-                    color: '#64748b',
-                  }}
+                  className="btn-ghost flex-1 py-2.5 font-bold text-xs rounded-lg flex items-center justify-center gap-2"
                 >
                   Decide Later
                 </button>

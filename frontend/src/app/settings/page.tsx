@@ -13,6 +13,7 @@ import { Capacitor } from '@capacitor/core';
 import VocabularySettings from "@/components/VocabularySettings";
 import RegionTimezone from "@/components/RegionTimezone";
 import SecuritySettings from "@/components/SecuritySettings";
+import ShowWeekendsSettings from "@/components/ShowWeekendsSettings";
 
 const SETTINGS_GROUPS = [
   {
@@ -52,8 +53,15 @@ const SETTINGS_GROUPS = [
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
           </svg>
         ) 
-      },
-    ]
+      },      { 
+        id: "show-weekends", 
+        label: "Calendar Display", 
+        icon: (
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+          </svg>
+        ) 
+      },    ]
   },
   {
     id: "group-general",
@@ -188,6 +196,8 @@ export default function SettingsPage() {
         return <VocabularySettings key={`vocab-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
       case "security":
         return <SecuritySettings key={`sec-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
+      case "show-weekends":
+        return <ShowWeekendsSettings key={`sw-${refreshKey}`} userId={user.uid} onBack={handleBack} />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-full bg-transparent animate-in fade-in">

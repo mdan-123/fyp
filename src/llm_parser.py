@@ -11,7 +11,16 @@ class ConstraintParser:
             return
 
         self.client = genai.Client(api_key=API_KEY)
-        self.model = "gemini-2.0-flash"
+        self.model = "gemini-2.5-pro"
+
+        # list all available models
+        try:
+            models = self.client.models.list()
+            print("✅ Connected to Gemini API. Available models:")
+            for m in models:
+                print(f"   - {m.name}")
+        except Exception as e:
+            print(f"❌ Failed to connect to Gemini API: {e}")
 
     def _clean_response(self, text):
         """Removes Markdown backticks to ensure valid JSON."""

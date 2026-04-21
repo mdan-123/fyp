@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect, TouchEvent } from "react";
 import { CalendarEvent } from "@/types";
+import { useAuth } from "@/lib/AuthContext";
+
+const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
 interface CustomCalendarProps {
   events: CalendarEvent[];
@@ -140,15 +143,29 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [view, setView] = useState<ViewType>("week");
   const [weekLayout, setWeekLayout] = useState<WeekLayout>("timeline");
+  const [showWeekends, setShowWeekends] = useState<boolean>(true);
   
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [pinchStartDist, setPinchStartDist] = useState<number | null>(null);
   const [pinchCurrentDist, setPinchCurrentDist] = useState<number | null>(null);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
   
   const PIXELS_PER_MINUTE = 1;
   const hours: number[] = Array.from({ length: 24 }, (_, i) => i);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    fetch(`${API_BASE_URL}/api/users/show-weekends/${user.uid}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (typeof data.show_weekends === "boolean") {
+          setShowWeekends(data.show_weekends);
+        }
+      })
+      .catch(() => {});
+  }, [user?.uid]);
 
   useEffect(() => {
     if (view !== "month" && weekLayout === "timeline" && scrollRef.current) {
@@ -221,11 +238,16 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
       if (day === 0) day = 7; 
       const diff = startOfWeek.getDate() - day + 1;
       startOfWeek.setDate(diff);
-      return Array.from({ length: 7 }, (_, i) => {
+      const allDays = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(startOfWeek);
         d.setDate(d.getDate() + i);
         return d;
       });
+      if (!showWeekends) {
+        // Filter out Saturday (6) and Sunday (0)
+        return allDays.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
+      }
+      return allDays;
     }
     return [];
   };

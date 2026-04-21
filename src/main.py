@@ -3795,6 +3795,33 @@ def get_user_timezone(user_id: str) -> zoneinfo.ZoneInfo:
     return zoneinfo.ZoneInfo("UTC")
 
 
+class ShowWeekendsRequest(BaseModel):
+    user_id: str
+    show_weekends: bool
+
+@app.post("/api/users/show-weekends")
+async def set_show_weekends(req: ShowWeekendsRequest):
+    try:
+        user_ref = db.collection("users").document(req.user_id)
+        user_ref.set({"show_weekends": req.show_weekends}, merge=True)
+        return {"status": "success", "show_weekends": req.show_weekends}
+    except Exception as e:
+        print(f"[ShowWeekends] Error setting show_weekends for {req.user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/users/show-weekends/{user_id}")
+async def get_show_weekends(user_id: str):
+    try:
+        user_doc = db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            return {"status": "success", "show_weekends": True}
+        show_weekends = user_doc.to_dict().get("show_weekends", True)
+        return {"status": "success", "show_weekends": show_weekends}
+    except Exception as e:
+        print(f"[ShowWeekends] Error fetching show_weekends for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 from pydantic import BaseModel
 from fastapi import HTTPException
 from google.cloud import firestore
