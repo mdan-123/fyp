@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 type VocabularySettingsProps = {
   userId: string;
@@ -29,8 +30,10 @@ export default function VocabularySettings({ userId, onBack }: VocabularySetting
   const fetchVocabulary = async () => {
     setIsLoading(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/vocabulary/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000,
       });
       if (res.ok) {
@@ -53,9 +56,10 @@ export default function VocabularySettings({ userId, onBack }: VocabularySetting
     setError("");
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/vocabulary`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           alias: aliasInput.trim(),
@@ -91,8 +95,10 @@ export default function VocabularySettings({ userId, onBack }: VocabularySetting
     setAliases(newAliases);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/vocabulary/${userId}/${aliasToDelete}`, {
         method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 5000,
       });
       

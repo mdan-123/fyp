@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { fetchLocationPredictions } from "@/lib/places";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -182,8 +183,10 @@ export default function TaskModal({
 
   const fetchUserReminders = async () => {
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/reminders/list/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000
       });
       if (res.ok) {
@@ -305,9 +308,10 @@ export default function TaskModal({
     if (!title) return;
     setIsAiEstimating(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/estimate-duration`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ title, description }),
         timeoutMs: 12000
       });
@@ -357,6 +361,7 @@ export default function TaskModal({
     };
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       let endpoint = "/api/tasks/create";
       let method = "POST";
 
@@ -368,7 +373,7 @@ export default function TaskModal({
 
       const res = await fetchWithRetry(`${API_BASE_URL}${endpoint}`, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload),
         timeoutMs: 10000
       });
@@ -381,7 +386,7 @@ export default function TaskModal({
           for (const rId of queuedLinkIds) {
             await fetchWithRetry(`${API_BASE_URL}/api/reminders/update`, {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
               body: JSON.stringify({ id: rId, user_id: userId, type: "task", reference_id: finalTaskId }),
               timeoutMs: 8000
             });
@@ -391,7 +396,7 @@ export default function TaskModal({
             newRem.reference_id = finalTaskId;
             await fetchWithRetry(`${API_BASE_URL}/api/reminders/create`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
               body: JSON.stringify(newRem),
               timeoutMs: 8000
             });
@@ -415,9 +420,10 @@ export default function TaskModal({
     setIsDeleting(true);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/delete`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: userId, task_id: editTask.id }),
         timeoutMs: 8000
       });

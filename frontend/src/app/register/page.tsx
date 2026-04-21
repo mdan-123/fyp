@@ -97,9 +97,10 @@ export default function RegisterPage() {
       const currentUser = auth.currentUser;
       if (!currentUser) throw new Error("User not authenticated.");
 
+      const token = await currentUser.getIdToken();
       await fetchWithRetry(`${API_BASE_URL}/api/users/timezone`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: currentUser.uid,
           timezone: selectedZone,

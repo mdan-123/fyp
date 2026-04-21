@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/AuthContext";
 import NavigationBar from "@/components/NavigationBar";
 import CustomCalendar from "@/components/CustomCalendar";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -362,7 +363,10 @@ export default function AnalyticsPage() {
   const fetchDashboard = async (uid: string) => {
     setIsLoading(true);
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/analytics/dashboard/${uid}`);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/analytics/dashboard/${uid}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       if (res.ok) setData(await res.json());
     } catch (e) {
       console.error(e);
@@ -376,9 +380,10 @@ export default function AnalyticsPage() {
     if (!userId) return;
     setIsGeneratingSchedule(true);
     try {
+      const token = await user?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/reschedule_debt/preview`, { 
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: userId }) 
       });
       if (res.ok) {
@@ -405,9 +410,10 @@ export default function AnalyticsPage() {
     if (!userId) return;
     setIsOptimising(true);
     try {
+      const token = await user?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/reschedule_debt/commit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           events: previewEvents,

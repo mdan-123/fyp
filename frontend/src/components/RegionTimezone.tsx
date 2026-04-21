@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 type RegionTimezoneProps = {
   userId: string;
@@ -62,9 +63,10 @@ export default function RegionTimezone({ userId, onBack }: RegionTimezoneProps) 
     setSuccessMessage(null);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/users/timezone`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           timezone: selectedZone,

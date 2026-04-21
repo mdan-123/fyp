@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { app } from "../lib/firebase";
+import { app, auth } from "../lib/firebase";
 import { fetchLocationPredictions } from "@/lib/places"; 
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 
@@ -165,8 +165,10 @@ export default function EventModal({
 
   const fetchUserReminders = async () => {
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/reminders/list/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000
       });
       if (res.ok) {
@@ -327,9 +329,10 @@ export default function EventModal({
         payload = { event_id: editEvent.id, user_id: userId, update_mode: 'exception_delete', instance_date: dateStr };
       }
 
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}${endpoint}`, {
         method: updateMode === 'single' ? "POST" : "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload),
         timeoutMs: 10000
       });
@@ -351,8 +354,9 @@ export default function EventModal({
     if (!travelOrigin || !location) return;
     setIsCalculatingTravel(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/location/travel-time`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ origin: travelOrigin, destination: location, mode: travelMode }),
         timeoutMs: 10000
       });
@@ -422,6 +426,7 @@ export default function EventModal({
     const endISO = new Date(`${endDate}T${endTime}:00`).toISOString();
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const storage = getStorage(app);
       const newUploadUrls: string[] = [];
       if (attachments && attachments.length > 0) {
@@ -454,7 +459,7 @@ export default function EventModal({
       };
 
       const res = await fetchWithRetry(`${API_BASE_URL}${editEvent ? "/api/calendar/update" : "/api/calendar/new"}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload),
         timeoutMs: 12000 
       });
@@ -467,7 +472,7 @@ export default function EventModal({
           for (const rId of queuedLinkIds) {
             await fetchWithRetry(`${API_BASE_URL}/api/reminders/update`, {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
               body: JSON.stringify({ id: rId, user_id: userId, type: "event", reference_id: finalEventId }),
               timeoutMs: 8000
             });
@@ -476,7 +481,7 @@ export default function EventModal({
             newRem.reference_id = finalEventId;
             await fetchWithRetry(`${API_BASE_URL}/api/reminders/create`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
               body: JSON.stringify(newRem),
               timeoutMs: 8000
             });

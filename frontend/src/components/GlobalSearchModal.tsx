@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -77,9 +78,10 @@ export default function GlobalSearchModal({
 
             setIsSearching(true);
             try {
+                const token = await auth.currentUser?.getIdToken();
                 const res = await fetchWithRetry(`${API_BASE_URL}/api/search`, {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                     body: JSON.stringify({ user_id: userId, query, search_type: searchType }),
                     timeoutMs: 5000,
                 });

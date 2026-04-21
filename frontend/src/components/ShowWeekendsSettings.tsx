@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 type ShowWeekendsSettingsProps = {
     userId: string;
@@ -22,10 +23,12 @@ export default function ShowWeekendsSettings({
     useEffect(() => {
         const fetchSetting = async () => {
             try {
+                const token = await auth.currentUser?.getIdToken();
                 const res = await fetchWithRetry(
                     `${API_BASE_URL}/api/users/show-weekends/${userId}`,
                     {
                         method: "GET",
+                        headers: { "Authorization": `Bearer ${token}` },
                         timeoutMs: 8000,
                     },
                 );
@@ -48,11 +51,12 @@ export default function ShowWeekendsSettings({
         setSuccessMessage(null);
 
         try {
+            const token = await auth.currentUser?.getIdToken();
             const res = await fetchWithRetry(
                 `${API_BASE_URL}/api/users/show-weekends`,
                 {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                     body: JSON.stringify({ user_id: userId, show_weekends: value }),
                     timeoutMs: 8000,
                 },

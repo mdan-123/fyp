@@ -157,14 +157,18 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
 
   useEffect(() => {
     if (!user?.uid) return;
-    fetch(`${API_BASE_URL}/api/users/show-weekends/${user.uid}`)
-      .then((res) => res.json())
-      .then((data) => {
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`${API_BASE_URL}/api/users/show-weekends/${user.uid}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const data = await res.json();
         if (typeof data.show_weekends === "boolean") {
           setShowWeekends(data.show_weekends);
         }
-      })
-      .catch(() => {});
+      } catch {}
+    })();
   }, [user?.uid]);
 
   useEffect(() => {

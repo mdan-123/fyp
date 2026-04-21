@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -33,9 +34,10 @@ export default function MorningDigestModal({ isOpen, onClose, userId, onEventCli
             const localDateStr = `${yyyy}-${mm}-${dd}`;
             const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+            const token = await auth.currentUser?.getIdToken();
             const res = await fetchWithRetry(`${API_BASE_URL}/api/ai/daily-digest`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
                 body: JSON.stringify({
                     user_id: userId,
                     local_date: localDateStr,

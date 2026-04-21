@@ -32,8 +32,10 @@ export default function SecuritySettings({ userId, onBack }: SecuritySettingsPro
   const fetchStatus = async () => {
     setIsLoading(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/auth/biometrics/status/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000,
       });
       if (res.ok) {
@@ -131,7 +133,11 @@ export default function SecuritySettings({ userId, onBack }: SecuritySettingsPro
     clearMessages();
     setIsProcessing(true);
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/auth/biometrics/mobile/${userId}`, { method: "DELETE" });
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/auth/biometrics/mobile/${userId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       if (res.ok) {
         setMobileEnabled(false);
         setSuccessMsg("Biometric login disabled.");
@@ -149,7 +155,11 @@ export default function SecuritySettings({ userId, onBack }: SecuritySettingsPro
     clearMessages();
     setIsProcessing(true);
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/auth/biometrics/passkeys/${userId}`, { method: "DELETE" });
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/auth/biometrics/passkeys/${userId}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       if (res.ok) {
         setPasskeyEnabled(false);
         setSuccessMsg("Passkeys removed successfully.");

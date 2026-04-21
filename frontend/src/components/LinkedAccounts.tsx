@@ -7,6 +7,7 @@ import { Browser } from '@capacitor/browser';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -40,7 +41,10 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
   const fetchAccounts = async () => {
     if (!userId) return;
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.linked_accounts || []);
@@ -57,9 +61,10 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
     setIsProcessing(emailToRemove);
     
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/disconnect`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           email: emailToRemove,
@@ -109,7 +114,10 @@ export default function LinkedAccounts({ userId, onBack }: LinkedAccountsProps) 
 
         const checkInterval = setInterval(async () => {
           try {
-            const pollRes = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`);
+            const pollToken = await auth.currentUser?.getIdToken();
+            const pollRes = await fetchWithRetry(`${API_BASE_URL}/api/users/linked-accounts/${userId}`, {
+              headers: { "Authorization": `Bearer ${pollToken}` }
+            });
             if (pollRes.ok) {
               const pollData = await pollRes.json();
               const updatedData = pollData.linked_accounts || [];

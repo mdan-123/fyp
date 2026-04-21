@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils";
+import { auth } from "@/lib/firebase";
 
 interface CalendarSafetyProps {
   userId: string;
@@ -19,9 +20,10 @@ export default function CalendarSafety({ userId, onBack }: CalendarSafetyProps) 
     setUndoMessage("");
     
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/snapshot/undo`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: userId }),
         timeoutMs: 15000
       });

@@ -8,6 +8,7 @@ import { fetchWithRetry } from "@/lib/fetchUtils";
 import { App as CapacitorApp } from '@capacitor/app'; 
 import { Capacitor } from '@capacitor/core';
 import GlobalSearchModal from "@/components/GlobalSearchModal";
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -59,8 +60,10 @@ export default function RemindersPage() {
   const fetchReminders = async (uid: string) => {
     setIsLoading(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/reminders/list/${uid}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000 
       });
       if (res.ok) {
@@ -86,10 +89,11 @@ export default function RemindersPage() {
     if (!userId || selectedReminderIds.length === 0) return;
     setIsLoading(true);
     try {
+      const token = await user?.getIdToken();
       await Promise.all(selectedReminderIds.map(async (id) => {
         return fetchWithRetry(`${API_BASE_URL}/api/reminders/update`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ id, user_id: userId, status: "dismissed" }),
         });
       }));
@@ -105,10 +109,11 @@ export default function RemindersPage() {
     if (!userId || selectedReminderIds.length === 0) return;
     setIsLoading(true);
     try {
+      const token = await user?.getIdToken();
       await Promise.all(selectedReminderIds.map(id => 
         fetchWithRetry(`${API_BASE_URL}/api/reminders/delete`, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ user_id: userId, reminder_id: id }),
         })
       ));

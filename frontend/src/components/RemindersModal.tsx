@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 
 import { fetchLocationPredictions } from "@/lib/places";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -194,8 +195,10 @@ export default function RemindersModal({
   const fetchAvailableLinks = async () => {
     setIsLoadingLinks(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const tasksRes = await fetchWithRetry(`${API_BASE_URL}/api/tasks/list/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000
       });
       if (tasksRes.ok) {
@@ -205,6 +208,7 @@ export default function RemindersModal({
 
       const eventsRes = await fetchWithRetry(`${API_BASE_URL}/api/calendar/events/${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000
       });
       if (eventsRes.ok) {
@@ -299,6 +303,7 @@ export default function RemindersModal({
     };
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       let endpoint = "/api/reminders/create";
       let method = "POST";
 
@@ -310,7 +315,7 @@ export default function RemindersModal({
 
       const res = await fetchWithRetry(`${API_BASE_URL}${endpoint}`, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload),
         timeoutMs: 10000
       });
@@ -333,9 +338,10 @@ export default function RemindersModal({
     setIsDeleting(true);
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/reminders/delete`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: userId, reminder_id: editReminder.id }),
         timeoutMs: 8000
       });

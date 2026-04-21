@@ -15,6 +15,7 @@ import { LinkedAccount, CalendarEvent } from "../types";
 import { fetchWithRetry } from "@/lib/fetchUtils";
 import { App as CapacitorApp } from '@capacitor/app'; 
 import { Capacitor } from '@capacitor/core';
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -91,8 +92,10 @@ export default function Dashboard() {
     // --- SILENT BACKGROUND SWEEPER ---
     const runBackgroundSweep = async (uid: string) => {
       try {
+        const token = await auth.currentUser?.getIdToken();
         fetchWithRetry(`${API_BASE_URL}/api/analytics/sweep/${uid}`, {
           method: "POST",
+          headers: { "Authorization": `Bearer ${token}` },
           timeoutMs: 5000 
         }).catch(e => console.error("Silent sweeper failed:", e));
       } catch (e) {
@@ -132,7 +135,10 @@ export default function Dashboard() {
     const fetchUserData = async (uid: string) => {
       setIsLoading(true);
       try {
-        const res = await fetchWithRetry(`${API_BASE_URL}/api/users/profile/${uid}`);
+        const token = await auth.currentUser?.getIdToken();
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/users/profile/${uid}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
         if (res.ok) {
           const data = await res.json();
           setLinkedAccounts(data.linked_accounts || []);
@@ -151,7 +157,10 @@ export default function Dashboard() {
     if (!targetUid) return;
 
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/events/${targetUid}`);
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/calendar/events/${targetUid}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       const json = await res.json();
 
       const loadedEvents: CalendarEvent[] = (json.events || []).map((data: any) => ({
@@ -208,9 +217,10 @@ export default function Dashboard() {
     if (!user) return;
     setIsSyncing(true);
     try {
+      const token = await authUser?.getIdToken();
       const res = await fetch(`${API_BASE_URL}/api/calendar/sync`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: user.uid }),
       });
 
@@ -229,9 +239,10 @@ export default function Dashboard() {
   const deleteEvent = async (eventId: string) => {
     if (!user) return;
     try {
+      const token = await authUser?.getIdToken();
       await fetch(`${API_BASE_URL}/api/calendar/delete-event`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: user.uid, event_id: eventId }),
       });
       await fetchEvents();
@@ -274,9 +285,10 @@ export default function Dashboard() {
     }
 
     try {
+      const token = await authUser?.getIdToken();
       const res = await fetch(`${API_BASE_URL}/api/calendar/resolve`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: user?.uid,
           event_id: eventId,
@@ -299,9 +311,10 @@ export default function Dashboard() {
     setIsOptimising(true);
     try {
       const dateStr = targetDate.toISOString().split("T")[0];
+      const token = await authUser?.getIdToken();
       const res = await fetch(`${API_BASE_URL}/api/calendar/optimise/preview`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ user_id: user.uid, target_date: dateStr }),
       });
 
@@ -344,15 +357,18 @@ export default function Dashboard() {
       try {
         await Promise.all(
           genericRules.map((rule) =>
-            fetch(`${API_BASE_URL}/api/preferences/parse`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                user_id: user.uid, 
-                raw_text: rule,
-                timezone: tz
-              }),
-            })
+            (async () => {
+              const token = await authUser?.getIdToken();
+              return fetch(`${API_BASE_URL}/api/preferences/parse`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ 
+                  user_id: user.uid, 
+                  raw_text: rule,
+                  timezone: tz
+                }),
+              });
+            })()
           )
         );
 
@@ -371,9 +387,10 @@ export default function Dashboard() {
     setIsOptimising(true);
     setErrorOptimising(false);
     try {
+      const token = await authUser?.getIdToken();
       const res = await fetch(`${API_BASE_URL}/api/calendar/optimise/commit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: user?.uid,
           events: previewEvents,

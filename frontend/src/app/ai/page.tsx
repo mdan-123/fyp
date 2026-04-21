@@ -312,7 +312,10 @@ export default function ChatPage() {
 
   const loadHistory = async (uid: string) => {
     try {
-      const res = await fetchWithRetry(`${API_BASE_URL}/api/ai/history/${uid}`);
+      const token = await user?.getIdToken();
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/ai/history/${uid}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         const loaded: Message[] = (data.history ?? []).map((h: any) => ({
@@ -373,9 +376,10 @@ export default function ChatPage() {
       if (intentOverride) body.intent_override = intentOverride;
       if (entityOverrides) body.entity_overrides = entityOverrides;
 
+      const token = await user?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/ai/parse`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(body),
       });
 
@@ -528,9 +532,10 @@ export default function ChatPage() {
     setFeedbackModal(null);
 
     try {
+      const token = await user?.getIdToken();
       await fetchWithRetry(`${API_BASE_URL}/api/ai/feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify(payload)
       });
     } catch (e) {

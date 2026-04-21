@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
+import { auth } from "@/lib/firebase";
 
 /* =========================
    TYPE DEFINITIONS
@@ -137,8 +138,10 @@ export default function OptimisationPreferences({
 
   const fetchPreferences = async (): Promise<void> => {
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/preferences/list?userId=${userId}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000
       });
       if (res.ok) {
@@ -158,9 +161,10 @@ export default function OptimisationPreferences({
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/preferences/parse`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           raw_text: inputText,
@@ -201,8 +205,10 @@ export default function OptimisationPreferences({
     setPreferences(preferences.filter((p) => p.id !== prefId));
 
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/preferences/${prefId}?userId=${userId}`, {
         method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 5000
       });
       if (!res.ok) throw new Error("Deletion failed");

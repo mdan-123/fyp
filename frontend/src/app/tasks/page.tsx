@@ -9,6 +9,7 @@ import { fetchWithRetry } from "@/lib/fetchUtils";
 import { App as CapacitorApp } from '@capacitor/app'; 
 import GlobalSearchModal from "@/components/GlobalSearchModal";
 import { Capacitor } from '@capacitor/core';
+import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
@@ -68,8 +69,10 @@ export default function TasksPage() {
   const fetchTasks = async (uid: string) => {
     setIsLoading(true);
     try {
+      const token = await auth.currentUser?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/list/${uid}`, {
         method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
         timeoutMs: 8000 
       });
       if (res.ok) {
@@ -117,9 +120,10 @@ export default function TasksPage() {
     setTasks(tasks.map(t => t.id === taskId ? { ...t, sub_tasks: updatedSubTasks } : t));
 
     try {
+      const token = await user?.getIdToken();
       await fetchWithRetry(`${API_BASE_URL}/api/tasks/update`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ ...taskToUpdate, sub_tasks: updatedSubTasks, user_id: userId }),
       });
     } catch (error) {
@@ -139,12 +143,13 @@ export default function TasksPage() {
     if (!userId || selectedTaskIds.length === 0) return;
     setIsLoading(true);
     try {
+      const token = await user?.getIdToken();
       await Promise.all(selectedTaskIds.map(async (taskId) => {
         const task = tasks.find(t => t.id === taskId);
         if (!task) return;
         return fetchWithRetry(`${API_BASE_URL}/api/tasks/update`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ ...task, status: "completed", user_id: userId }),
         });
       }));
@@ -160,12 +165,13 @@ export default function TasksPage() {
     if (!userId || selectedTaskIds.length === 0) return;
     setIsLoading(true);
     try {
+      const token = await user?.getIdToken();
       await Promise.all(selectedTaskIds.map(async (taskId) => {
         const task = tasks.find(t => t.id === taskId);
         if (!task) return;
         return fetchWithRetry(`${API_BASE_URL}/api/tasks/update`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ ...task, status: "missed", user_id: userId }),
         });
       }));
@@ -181,10 +187,11 @@ export default function TasksPage() {
     if (!userId || selectedTaskIds.length === 0) return;
     setIsLoading(true);
     try {
+      const token = await user?.getIdToken();
       await Promise.all(selectedTaskIds.map(taskId => 
         fetchWithRetry(`${API_BASE_URL}/api/tasks/delete`, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ user_id: userId, task_id: taskId }),
         })
       ));
@@ -200,9 +207,10 @@ export default function TasksPage() {
     if (!userId) return;
     setIsGeneratingSchedule(true);
     try {
+      const token = await user?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/schedule/preview`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           target_date: new Date().toISOString(),
@@ -234,9 +242,10 @@ export default function TasksPage() {
     if (!userId) return;
     setIsOptimising(true);
     try {
+      const token = await user?.getIdToken();
       const res = await fetchWithRetry(`${API_BASE_URL}/api/tasks/schedule/commit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           events: previewEvents,
