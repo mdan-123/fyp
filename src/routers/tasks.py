@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from firebase_admin import firestore as fs
 
 import dependencies as deps
-from dependencies import verify_firebase_token, parse_iso, get_user_timezone
+from dependencies import verify_firebase_token, parse_iso, get_user_timezone, create_calendar_snapshot
 
 router = APIRouter()
 
@@ -383,6 +383,8 @@ async def commit_task_schedule(
         ]
         if not task_ghosts:
             return {"status": "success", "message": "No new tasks to schedule."}
+
+        create_calendar_snapshot(user_id)
 
         task_event_map: dict = {}
         batch = deps.db.batch()

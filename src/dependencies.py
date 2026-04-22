@@ -168,6 +168,41 @@ def get_user_timezone(user_id: str) -> zoneinfo.ZoneInfo:
     return zoneinfo.ZoneInfo("UTC")
 
 
+def create_calendar_snapshot(user_id: str) -> str | None:
+    """
+    Saves a snapshot of the user's current raw_events collection to
+    calendar_snapshots so the change can be undone via /api/calendar/snapshot/undo.
+    Returns the snapshot_id on success, or None on failure.
+    """
+    try:
+        import uuid as _uuid
+        events_ref = db.collection("users").document(user_id).collection("raw_events")
+        snapshot_data = []
+        for doc in events_ref.stream():
+            event_dict = doc.to_dict()
+            event_dict["_id"] = doc.id
+            snapshot_data.append(event_dict)
+
+        snapshot_id = f"snap_{_uuid.uuid4().hex[:12]}"
+        timestamp = dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        db.collection("users").document(user_id).collection(
+            "calendar_snapshots"
+        ).document(snapshot_id).set(
+            {
+                "snapshot_id": snapshot_id,
+                "created_at": timestamp,
+                "event_count": len(snapshot_data),
+                "events": snapshot_data,
+            }
+        )
+        print(f"Snapshot {snapshot_id} created for user {user_id}")
+        return snapshot_id
+    except Exception as e:
+        print(f"Error creating snapshot for {user_id}: {e}")
+        return None
+
+
 def sync_task_with_events(user_id: str, task_id: str):
     """
     Evaluates all events linked to a task and auto-updates the task's status.

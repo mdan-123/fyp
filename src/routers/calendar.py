@@ -25,6 +25,7 @@ from dependencies import (
     safe_parse_dt,
     get_user_timezone,
     sync_task_with_events,
+    create_calendar_snapshot,
 )
 from categorise import categorise_event
 
@@ -222,33 +223,7 @@ def _hash_event_list(events: List[Dict[str, Any]]) -> str:
 
 
 def _create_calendar_snapshot(user_id: str):
-    try:
-        from datetime import datetime
-        events_ref = deps.db.collection("users").document(user_id).collection("raw_events")
-        snapshot_data = []
-        for doc in events_ref.stream():
-            event_dict = doc.to_dict()
-            event_dict["_id"] = doc.id
-            snapshot_data.append(event_dict)
-
-        snapshot_id = f"snap_{uuid.uuid4().hex[:12]}"
-        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-        deps.db.collection("users").document(user_id).collection(
-            "calendar_snapshots"
-        ).document(snapshot_id).set(
-            {
-                "snapshot_id": snapshot_id,
-                "created_at": timestamp,
-                "event_count": len(snapshot_data),
-                "events": snapshot_data,
-            }
-        )
-        print(f"Snapshot {snapshot_id} created for user {user_id}")
-        return snapshot_id
-    except Exception as e:
-        print(f"Error creating snapshot for {user_id}: {e}")
-        return None
+    return create_calendar_snapshot(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1113,6 +1088,8 @@ async def commit_reschedule_debt(
         ]
         if not debt_ghosts:
             return {"status": "success", "refunded_mins": 0}
+
+        create_calendar_snapshot(user_id)
 
         batch = deps.db.batch()
         events_ref = (
