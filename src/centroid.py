@@ -5,7 +5,7 @@ from transformers import AutoTokenizer, AutoModel
 from collections import defaultdict
 
 # 1. Configuration
-MODEL_PATH = "./modernbert_intent_model/checkpoint-2160" 
+MODEL_PATH = "./modernbert_intent_modelv2/checkpoint-2160" 
 DATA_PATH = "./modernbert_data/multilabel_intent_train.jsonl"
 OUTPUT_FILE = "intent_centroids.npy"
 

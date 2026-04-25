@@ -1,0 +1,81 @@
+{
+  "optimal_threshold": 0.36585726303344474,
+  "roc_auc": 0.7653,
+  "cv_auc_mean": 0.7627,
+  "cv_auc_std": 0.0147,
+  "brier_score": {
+    "brier_calibrated": 0.1785,
+    "brier_uncalibrated": 0.1972,
+    "brier_baseline": 0.2217,
+    "baseline_improvement_pct": 19.46
+  },
+  "best_hyperparameters": {
+    "n_estimators": 200,
+    "min_samples_split": 5,
+    "min_samples_leaf": 15,
+    "max_features": "sqrt",
+    "max_depth": null,
+    "bootstrap": true
+  },
+  "class_weights": {
+    "0": 0.7486000589448866,
+    "1": 1.5056312981624185
+  },
+  "feature_columns": [
+    "snooze_count",
+    "priority",
+    "energy_level",
+    "estimated_duration",
+    "global_time_debt",
+    "tasks_due_same_day",
+    "days_since_created",
+    "snooze_rate",
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos"
+  ],
+  "raw_feature_columns": [
+    "snooze_count",
+    "priority",
+    "energy_level",
+    "estimated_duration",
+    "global_time_debt",
+    "tasks_due_same_day",
+    "days_since_created",
+    "hour_of_due_time",
+    "day_of_week"
+  ],
+  "feature_importance": {
+    "global_time_debt": 0.194,
+    "snooze_count": 0.1593,
+    "priority": 0.1101,
+    "snooze_rate": 0.1076,
+    "days_since_created": 0.0982,
+    "hour_cos": 0.0951,
+    "day_sin": 0.0609,
+    "hour_sin": 0.0464,
+    "tasks_due_same_day": 0.0442,
+    "estimated_duration": 0.0365,
+    "day_cos": 0.0256,
+    "energy_level": 0.022
+  },
+  "cyclic_encoded_features": {
+    "hour_of_due_time": [
+      "hour_sin",
+      "hour_cos"
+    ],
+    "day_of_week": [
+      "day_sin",
+      "day_cos"
+    ]
+  },
+  "derived_features": {
+    "snooze_rate": "snooze_count / max(days_since_created, 1)"
+  },
+  "risk_thresholds": {
+    "LOW": "risk_score < 0.35",
+    "MEDIUM": "0.35 <= risk_score < 0.65",
+    "HIGH": "risk_score >= 0.65"
+  }
+}

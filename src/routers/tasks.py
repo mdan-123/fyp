@@ -285,9 +285,26 @@ async def delete_task(
     _token=Depends(verify_firebase_token),
 ):
     try:
-        deps.db.collection("users").document(request.user_id).collection(
-            "raw_tasks"
-        ).document(request.task_id).delete()
+        task_ref = (
+            deps.db.collection("users")
+            .document(request.user_id)
+            .collection("raw_tasks")
+            .document(request.task_id)
+        )
+        doc_snap = task_ref.get()
+        if doc_snap.exists:
+            task_data = doc_snap.to_dict()
+            # Refund debt if this missed task had debt applied
+            if task_data.get("status") == "missed" and task_data.get("debt_applied"):
+                base_duration = task_data.get("estimated_duration") or 60
+                capped = min(max(0, base_duration), 120)
+                if capped > 0:
+                    debt_field = "sunk_time_debt" if task_data.get("is_perishable") else "total_time_debt"
+                    deps.db.collection("users").document(request.user_id).update(
+                        {debt_field: fs.Increment(-capped)}
+                    )
+                    print(f"💰 Refunded {capped} mins on task deletion")
+        task_ref.delete()
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -327,6 +344,13 @@ async def preview_task_scheduling(
         )
         preferences = [doc.to_dict() for doc in prefs_ref.stream()]
 
+        user_doc_sched = deps.db.collection("users").document(user_id).get()
+        user_settings_sched = user_doc_sched.to_dict() if user_doc_sched.exists else {}
+        sched_window_days = int(user_settings_sched.get("optimisation_window_days", 7))
+        schedule_on_weekends = bool(user_settings_sched.get("schedule_on_weekends", False))
+        sched_start_hour = int(user_settings_sched.get("scheduling_start_hour", 8))
+        sched_end_hour = int(user_settings_sched.get("scheduling_end_hour", 22))
+
         events_ref = (
             deps.db.collection("users").document(user_id).collection("raw_events")
         )
@@ -350,9 +374,12 @@ async def preview_task_scheduling(
             pending_tasks = [doc.to_dict() for doc in tasks_stream]
 
         task_scheduler = TaskScheduler(
-            existing_events, preferences, user_tz_string=str(user_tz)
+            existing_events, preferences, user_tz_string=str(user_tz),
+            skip_weekends=not schedule_on_weekends,
+            scheduling_start_hour=sched_start_hour,
+            scheduling_end_hour=sched_end_hour,
         )
-        horizon_end = target_date + timedelta(days=14)
+        horizon_end = target_date + timedelta(days=sched_window_days)
         task_ghosts = task_scheduler.schedule_tasks(
             target_date, horizon_end, pending_tasks
         )

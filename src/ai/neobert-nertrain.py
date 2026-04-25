@@ -1,9 +1,10 @@
 # ===============================================================
-# modernbert_ner_trainer.py
-# Optimised for ModernBERT Token Classification (NER)
+# neobert_ner_trainer.py
+# Optimised for NeoBERT Token Classification (NER)
 #
 # Requirements:
 # pip install torch transformers datasets evaluate scikit-learn seqeval
+# Note: xformers and flash_attn are optional Linux/CUDA-only optimisations — not required on macOS.
 # ===============================================================
 
 import json
@@ -20,9 +21,9 @@ from transformers import (
 import evaluate
 
 # --- CONFIGURATION ---
-MODEL_ID = "answerdotai/ModernBERT-base"
+MODEL_ID = "chandar-lab/NeoBERT"
 DATA_DIR = "./modernbert_data"
-OUTPUT_DIR = "./modernbert_ner_model"
+OUTPUT_DIR = "./neobert_ner_model"
 
 MAX_LENGTH = 128
 BATCH_SIZE = 32
@@ -44,7 +45,7 @@ def load_label_maps():
     return label2id, id2label, label_list
 
 def main():
-    print("Initialising ModernBERT NER Training Pipeline")
+    print("Initialising NeoBERT NER Training Pipeline")
     
     label2id, id2label, label_list = load_label_maps()
     num_labels = len(label_list)
@@ -60,8 +61,9 @@ def main():
     )
     
     print(f"Loading tokenizer {MODEL_ID}...")
-    # add_prefix_space is sometimes required for Roberta/ModernBERT tokenizers in NER
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, add_prefix_space=True)
+    # NeoBERT uses BERT's WordPiece tokenizer — no add_prefix_space needed
+    # trust_remote_code=True is required as NeoBERT ships custom model code
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     
     def tokenize_and_align_labels(examples):
         """
@@ -110,7 +112,8 @@ def main():
         MODEL_ID,
         num_labels=num_labels,
         id2label=id2label,
-        label2id=label2id
+        label2id=label2id,
+        trust_remote_code=True
     )
     
     # This collator automatically pads both the inputs AND the labels (padding labels with -100)
@@ -192,7 +195,7 @@ def main():
     # Save training logs to a text file
     log_path = f"{OUTPUT_DIR}/training_log.txt"
     with open(log_path, "w") as f:
-        f.write("=== ModernBERT NER Training Log ===\n\n")
+        f.write("=== NeoBERT NER Training Log ===\n\n")
         f.write("--- Training History ---\n")
         for entry in trainer.state.log_history:
             f.write(str(entry) + "\n")

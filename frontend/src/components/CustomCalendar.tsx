@@ -13,6 +13,7 @@ interface CustomCalendarProps {
   isSyncing: boolean;
   onOptimise: (date: Date) => void;
   isPreviewMode?: boolean;
+  previewStartDate?: Date;
   onSearchClick?: () => void; // Added Search Prop
 }
 
@@ -139,11 +140,19 @@ const getCategoryClass = (category?: string) => {
   }
 };
 
-export default function CustomCalendar({ events, onEventClick, onSync, isSyncing, onOptimise, isPreviewMode = false, onSearchClick }: CustomCalendarProps) {
+export default function CustomCalendar({ events, onEventClick, onSync, isSyncing, onOptimise, isPreviewMode = false, previewStartDate, onSearchClick }: CustomCalendarProps) {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [view, setView] = useState<ViewType>("week");
   const [weekLayout, setWeekLayout] = useState<WeekLayout>("timeline");
   const [showWeekends, setShowWeekends] = useState<boolean>(true);
+
+  // When entering preview mode, navigate to the start of the optimised window
+  useEffect(() => {
+    if (isPreviewMode && previewStartDate) {
+      setCurrentDate(previewStartDate);
+      setView("week");
+    }
+  }, [isPreviewMode]); // eslint-disable-line react-hooks/exhaustive-deps
   
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [pinchStartDist, setPinchStartDist] = useState<number | null>(null);
@@ -234,14 +243,19 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
     setCurrentDate(newDate);
   };
 
+  const getWeekStart = (): Date => {
+    const startOfWeek = new Date(currentDate);
+    let day = startOfWeek.getDay();
+    if (day === 0) day = 7;
+    const diff = startOfWeek.getDate() - day + 1;
+    startOfWeek.setDate(diff);
+    return startOfWeek;
+  };
+
   const getDaysInView = (): Date[] => {
     if (view === "day") return [currentDate];
     if (view === "week") {
-      const startOfWeek = new Date(currentDate);
-      let day = startOfWeek.getDay();
-      if (day === 0) day = 7; 
-      const diff = startOfWeek.getDate() - day + 1;
-      startOfWeek.setDate(diff);
+      const startOfWeek = getWeekStart();
       const allDays = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(startOfWeek);
         d.setDate(d.getDate() + i);
@@ -327,7 +341,7 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
                 </button>
               )}
               <button 
-                onClick={() => onOptimise(currentDate)}
+                onClick={() => onOptimise(view === 'week' ? getWeekStart() : currentDate)}
                 className="p-2.5 rounded-xl transition-all duration-200 active:scale-95"
                 style={{
                   background: 'var(--color-accent-glow)',
@@ -376,7 +390,7 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
               )}
 
               <button 
-                onClick={() => onOptimise(currentDate)}
+                onClick={() => onOptimise(view === 'week' ? getWeekStart() : currentDate)}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] btn-primary"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

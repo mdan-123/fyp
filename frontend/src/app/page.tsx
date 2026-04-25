@@ -205,6 +205,7 @@ export default function Dashboard() {
         completed_at: data.completed_at || null,
         debt_applied: data.debt_applied || false,
         is_perishable: data.is_perishable || false,
+        is_ghost: data.is_ghost || false,
       } as CalendarEvent));
 
       setEvents(loadedEvents);
@@ -532,6 +533,7 @@ export default function Dashboard() {
           isSyncing={isSyncing || isOptimising}
           onOptimise={handleOptimiseClick}
           isPreviewMode={isPreviewMode}
+          previewStartDate={isPreviewMode ? optimiseTargetDate : undefined}
           onSearchClick={() => setIsSearchOpen(true)} 
         />
       </div>

@@ -1,10 +1,14 @@
 .venv/
-
+.claude
+.pytest_cache/
+.vscode/
 # Dependencies
 node_modules/
 .venv/
 __pycache__/
 .github/
+.images/
+
 
 .vscode/
 
@@ -20,11 +24,14 @@ system_design.txt
 
 **/ios/
 
-
+**/tests/
+**/olddata/
 **/deberta_data/
 **/modernbert_data/
 **/modernbert_ner_model/
 **/modernbert_intent_model/
+**/modernbert_intent_modelv2/
+**/_modernbert_intent_model/
 **/roberta-intent-scheduler/
 **/roberta-ner-scheduler/
 **/risk_prediction_model_shap_explainer.pkl

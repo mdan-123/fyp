@@ -28,14 +28,18 @@ class TimeSlot:
         self.score = score
 
 class BaseScheduler:
-    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC"):
+    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC", skip_weekends: bool = False, routines_on_weekends: bool = False, scheduling_start_hour: int = 8, scheduling_end_hour: int = 22):
         self.existing_events = list(existing_events) 
         self.preferences = list(preferences)
-        self.interval_minutes = 15 
+        self.interval_minutes = 15
+        self.skip_weekends = skip_weekends
+        self.routines_on_weekends = routines_on_weekends
+        self.scheduling_start_hour = max(0, min(23, scheduling_start_hour))
+        self.scheduling_end_hour = max(self.scheduling_start_hour + 1, min(24, scheduling_end_hour))
 
         try:
             self.user_tz = zoneinfo.ZoneInfo(user_tz_string)
-        except:
+        except Exception:
             self.user_tz = zoneinfo.ZoneInfo("UTC")
 
         has_meal_window = any(p.get("category") == "MEAL" and p.get("type") == "WINDOW" for p in self.preferences)
@@ -49,8 +53,15 @@ class BaseScheduler:
             })
 
     def _get_day_boundaries(self, target_date: datetime.date):
-        start_of_day = datetime.datetime.combine(target_date, datetime.time(8, 0), tzinfo=self.user_tz)
-        end_of_day = datetime.datetime.combine(target_date, datetime.time(22, 0), tzinfo=self.user_tz)
+        if self.skip_weekends and target_date.weekday() >= 5:
+            d = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz).astimezone(datetime.timezone.utc)
+            return d, d
+        start_of_day = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz)
+        end_hour = self.scheduling_end_hour % 24
+        if self.scheduling_end_hour == 24:
+            end_of_day = datetime.datetime.combine(target_date + datetime.timedelta(days=1), datetime.time(0, 0), tzinfo=self.user_tz)
+        else:
+            end_of_day = datetime.datetime.combine(target_date, datetime.time(end_hour, 0), tzinfo=self.user_tz)
         return start_of_day.astimezone(datetime.timezone.utc), end_of_day.astimezone(datetime.timezone.utc)
 
     def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
@@ -208,82 +219,6 @@ class BaseScheduler:
 
         return score
 
-    def _get_all_candidate_slots(self, target_date: datetime.date, duration_minutes: int, event_category: str, relax_hard_constraints: bool = False) -> List[TimeSlot]:
-        """Returns every feasible, scored slot for a routine on a given day."""
-        start_of_day, end_of_day = self._get_day_boundaries(target_date)
-        current_time = start_of_day
-        candidates = []
-
-        while current_time + datetime.timedelta(minutes=duration_minutes) <= end_of_day:
-            slot_end = current_time + datetime.timedelta(minutes=duration_minutes)
-            if not self._is_overlapping(current_time, slot_end):
-                gaps = self._calculate_gaps(current_time, slot_end)
-                if relax_hard_constraints or not self._fails_hard_constraints(current_time, slot_end, event_category, gaps):
-                    score = self._score_soft_constraints(current_time, slot_end, event_category, gaps, relax_hard_constraints, None)
-                    candidates.append(TimeSlot(current_time, slot_end, score))
-            current_time += datetime.timedelta(minutes=self.interval_minutes)
-
-        return candidates
-
-    def _holistic_assign(self, routines_with_candidates: List[tuple]) -> Dict[str, Any]:
-        """
-        Globally optimal, non-conflicting assignment of routines to time slots.
-
-        Instead of placing routines one at a time (greedy / first-come-first-served),
-        this explores every combination of (routine → slot) assignments and selects
-        the one that maximises total score, with placement count taking priority
-        over score (i.e. always prefer placing more routines).
-
-        Uses backtracking with branch-and-bound pruning.
-        Practical for ≤ 6 routines with ≤ 20 candidates each.
-        """
-        if not routines_with_candidates:
-            return {}
-
-        n = len(routines_with_candidates)
-        # Sort each routine's candidates best-first and cap at 20 to bound search space
-        prepared = [
-            (pref, sorted(cands, key=lambda s: s.score, reverse=True)[:20])
-            for pref, cands in routines_with_candidates
-        ]
-        # Upper-bound per routine: best score achievable (used for pruning)
-        best_possible = [max((s.score for s in c), default=0) for _, c in prepared]
-
-        state: Dict[str, Any] = {"placed": -1, "score": float("-inf"), "assignment": {}}
-
-        def backtrack(idx: int, assignment: Dict[str, TimeSlot], placed: int, score: int) -> None:
-            if idx == n:
-                if placed > state["placed"] or (placed == state["placed"] and score > state["score"]):
-                    state.update(placed=placed, score=score, assignment=dict(assignment))
-                return
-
-            # Branch-and-bound: prune if we can't beat the current best
-            remaining = n - idx
-            if placed + remaining < state["placed"]:
-                return
-            if placed + remaining == state["placed"]:
-                remaining_score = sum(best_possible[j] for j in range(idx, n))
-                if score + remaining_score <= state["score"]:
-                    return
-
-            pref, candidates = prepared[idx]
-            cat = pref.get("category", "ALL")
-
-            for slot in candidates:
-                # Skip slots that conflict with already-assigned routines
-                if any(slot.start < a.end and slot.end > a.start for a in assignment.values()):
-                    continue
-                assignment[cat] = slot
-                backtrack(idx + 1, assignment, placed + 1, score + slot.score)
-                del assignment[cat]
-
-            # Also explore skipping this routine so the solver can trade a lower-priority
-            # routine for a globally better placement of higher-priority ones
-            backtrack(idx + 1, assignment, placed, score)
-
-        backtrack(0, {}, 0, 0)
-        return state["assignment"]
-
     def _search_slots(self, target_date: datetime.date, duration_minutes: int, event_category: str, relax_hard_constraints: bool, original_start_dt: Optional[datetime.datetime]) -> Optional[TimeSlot]:
         start_of_day, end_of_day = self._get_day_boundaries(target_date)
         current_time = start_of_day
@@ -324,58 +259,93 @@ class Optimiser(BaseScheduler):
         routine_events = []
         delta = end_date - start_date
 
+        print(f"\n{'='*60}")
+        print(f"[inject_routines] {start_date} → {end_date} | {len(self.existing_events)} existing events")
+        for ev in self.existing_events:
+            ev_start = safe_parse_dt(ev.get("start", ""))
+            ev_start_local = ev_start.astimezone(self.user_tz).strftime('%Y-%m-%d %H:%M') if ev_start else "?"
+            ev_end = safe_parse_dt(ev.get("end", ""))
+            ev_end_local = ev_end.astimezone(self.user_tz).strftime('%H:%M') if ev_end else "?"
+            locked = "locked" if ev.get("is_locked") else "unlocked"
+            print(f"  Event: {ev.get('title', 'Untitled')!r} [{ev.get('category','?')}] {ev_start_local}–{ev_end_local} ({locked})")
+        print(f"{'='*60}\n")
+
+        # ── Phase 1: Collect one best candidate per (day, routine) without committing ──
+        all_candidates = []  # (score, day_offset, pref_idx, slot, pref, current_date)
+
         for i in range(delta.days + 1):
             current_date = start_date + datetime.timedelta(days=i)
 
-            # Collect every routine that still needs to be placed on this day
-            routines_to_place = []
-            for pref in self.preferences:
-                if not (pref.get("is_routine", False) and "duration" in pref):
-                    continue
-                category = pref.get("category", "ALL")
-                already_exists = any(
-                    e.get("category") == category
-                    and e.get("provider") == "custom"
-                    and e.get("start", "")[:10] == current_date.isoformat()
-                    for e in self.existing_events
-                )
-                if not already_exists:
-                    routines_to_place.append(pref)
-
-            if not routines_to_place:
+            if not self.routines_on_weekends and current_date.weekday() >= 5:
                 continue
 
-            # Generate ALL candidate slots for every routine up-front (before placing any).
-            # This ensures the holistic solver sees unmodified free time for all routines.
-            routines_with_candidates = []
-            for pref in routines_to_place:
+            for pref_idx, pref in enumerate(self.preferences):
+                if not (pref.get("is_routine", False) and "duration" in pref):
+                    continue
+
                 category = pref.get("category", "ALL")
-                duration = pref["duration"]
-                candidates = self._get_all_candidate_slots(current_date, duration, category)
-                if not candidates:
-                    candidates = self._get_all_candidate_slots(current_date, duration, category, relax_hard_constraints=True)
-                routines_with_candidates.append((pref, candidates))
 
-            # Holistically find the globally optimal, non-conflicting assignment
-            assignment = self._holistic_assign(routines_with_candidates)
+                routine_already_exists = False
+                for existing_event in self.existing_events:
+                    if existing_event.get("category") == category and existing_event.get("provider") == "custom":
+                        evt_date_str = existing_event.get("start", "")[:10]
+                        if evt_date_str == current_date.isoformat():
+                            routine_already_exists = True
+                            break
 
-            # Commit the chosen slots and register ghost events
-            for category, slot in assignment.items():
-                title = f"Routine: {category.replace('_', ' ').title()}"
-                ghost_event = {
-                    "id": f"ghost_{uuid.uuid4().hex[:8]}",
-                    "title": title,
-                    "start": slot.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    "end": slot.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    "is_locked": True,
-                    "provider": "custom",
-                    "status": "synced",
-                    "requires_review": False,
-                    "has_drifted": False,
-                    "category": category,
-                    "is_ghost": True
-                }
-                self.existing_events.append(ghost_event)
-                routine_events.append(ghost_event)
+                if routine_already_exists:
+                    continue
+
+                best_slot = self.find_best_slot(current_date, pref["duration"], category)
+                if best_slot:
+                    slot_start_local = best_slot.start.astimezone(self.user_tz)
+                    slot_end_local = best_slot.end.astimezone(self.user_tz)
+                    print(f"[Candidate] {current_date} | {category} ({pref['duration']}min) → {slot_start_local.strftime('%H:%M')}–{slot_end_local.strftime('%H:%M')} | score={best_slot.score}")
+                    all_candidates.append((best_slot.score, i, pref_idx, best_slot, pref, current_date))
+
+        # ── Phase 2: Sort globally by score (highest first) ──
+        all_candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # ── Phase 3: Assign in score order, re-verifying each slot ──
+        assigned: set = set()  # (day_offset, pref_idx)
+
+        for score, day_idx, pref_idx, slot, pref, current_date in all_candidates:
+            key = (day_idx, pref_idx)
+            if key in assigned:
+                continue
+
+            category = pref.get("category", "ALL")
+
+            # Re-verify: a higher-scoring prior commit may have claimed this slot
+            if self._is_overlapping(slot.start, slot.end):
+                print(f"[Re-search] {current_date} | {category} slot conflicted, searching again...")
+                # Try a fresh search against the now-updated calendar
+                slot = self.find_best_slot(current_date, pref["duration"], category)
+                if not slot or self._is_overlapping(slot.start, slot.end):
+                    print(f"[Skip] {current_date} | {category} — no valid slot found after re-search")
+                    continue
+
+            title = f"Routine: {category.replace('_', ' ').title()}"
+
+            ghost_event = {
+                "id": f"ghost_{uuid.uuid4().hex[:8]}",
+                "title": title,
+                "start": slot.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                "end": slot.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                "is_locked": True,
+                "provider": "custom",
+                "status": "synced",
+                "requires_review": False,
+                "has_drifted": False,
+                "category": category,
+                "is_ghost": True,
+            }
+
+            slot_start_local = slot.start.astimezone(self.user_tz)
+            slot_end_local = slot.end.astimezone(self.user_tz)
+            print(f"[Assigned] {current_date} | {category} → {slot_start_local.strftime('%H:%M')}–{slot_end_local.strftime('%H:%M')} | score={slot.score}")
+            self.existing_events.append(ghost_event)
+            routine_events.append(ghost_event)
+            assigned.add(key)
 
         return routine_events

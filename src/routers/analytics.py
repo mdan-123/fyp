@@ -12,6 +12,7 @@ import shap
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from firebase_admin import firestore as fs
+from firebase_admin import auth as fb_auth
 
 import dependencies as deps
 from dependencies import verify_firebase_token, parse_iso, safe_parse_dt, get_user_timezone
@@ -196,6 +197,7 @@ async def get_master_dashboard_data(
         user_data = user_doc.to_dict() if user_doc.exists else {}
         global_debt = user_data.get("total_time_debt") or 0
         sunk_debt = user_data.get("sunk_time_debt") or 0
+        time_refunded_offset = user_data.get("time_refunded_offset") or 0
 
         tasks_ref = deps.db.collection("users").document(user_id).collection("raw_tasks")
         events_ref = deps.db.collection("users").document(user_id).collection("raw_events")
@@ -226,7 +228,7 @@ async def get_master_dashboard_data(
             status = event.get("completion_status", "pending")
             category = event.get("category", "MEETING")
             category_stats[category]["scheduled"] += 1
-            if status == "completed" and event.get("is_reclaimed_debt"):
+            if event.get("is_reclaimed_debt") and status != "missed":
                 start_dt = parse_iso(event.get("start"))
                 end_dt = parse_iso(event.get("end"))
                 if start_dt and end_dt:
@@ -322,6 +324,17 @@ async def get_master_dashboard_data(
 
         avg_friction = (sum(friction_hours_list) / len(friction_hours_list)) if friction_hours_list else 0
         peak_hour = max(hour_distribution, key=hour_distribution.get) if completed_tasks else 9
+
+        # Cold-start detection: account ≤ 7 days old AND no historical data yet
+        is_cold_start = False
+        try:
+            user_record = fb_auth.get_user(user_id)
+            creation_ms = user_record.user_metadata.creation_timestamp  # milliseconds since epoch
+            account_age_days = (now_dt - dt.datetime.fromtimestamp(creation_ms / 1000, tz=timezone.utc)).days
+            no_history = len(completed_tasks) == 0 and completed_events_count == 0
+            is_cold_start = account_age_days <= 7 and no_history
+        except Exception:
+            pass
         most_avoided = sorted([t for t in pending_tasks if (t.get("snooze_count") or 0) > 0], key=lambda x: x.get("snooze_count") or 0, reverse=True)[:5]
         scored_pending_tasks.sort(key=lambda x: x.get("risk_score") or 0, reverse=True)
         danger_zone = [t for t in scored_pending_tasks if (t.get("risk_score") or 0) >= 65][:3]
@@ -333,9 +346,12 @@ async def get_master_dashboard_data(
         total_routines = completed_routines + missed_routines
         routine_adherence = (completed_routines / total_routines * 100) if total_routines > 0 else 0
         formatted_trend_data = [{"date": day, "tasks": data["tasks"], "events": data["events"]} for day, data in trend_data_dict.items()]
+        # Apply reset offset so the counter shows time refunded since last reset
+        time_refunded = max(0, time_refunded - time_refunded_offset)
 
         return {
             "status": "success",
+            "is_cold_start": is_cold_start,
             "core_ledgers": {
                 "active_debt_mins": global_debt,
                 "sunk_debt_mins": sunk_debt,
@@ -478,4 +494,140 @@ async def record_training_telemetry(
         return {"status": "success", "message": "Telemetry recorded for future model training."}
     except Exception as e:
         print(f"[Telemetry Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Snooze ledger
+# ---------------------------------------------------------------------------
+
+class ClearSnoozeRequest(BaseModel):
+    user_id: str
+    item_id: str
+    item_type: str  # "task" or "event"
+
+
+@router.get("/api/analytics/snoozed/{user_id}")
+async def get_snoozed_items(
+    user_id: str,
+    _token=Depends(verify_firebase_token),
+):
+    try:
+        tasks_ref = deps.db.collection("users").document(user_id).collection("raw_tasks")
+        events_ref = deps.db.collection("users").document(user_id).collection("raw_events")
+
+        snoozed_tasks = []
+        for doc in tasks_ref.stream():
+            t = doc.to_dict()
+            if (t.get("snooze_count") or 0) > 0:
+                snoozed_tasks.append({
+                    "id": t.get("id") or doc.id,
+                    "type": "task",
+                    "title": t.get("title", "Untitled"),
+                    "description": t.get("description") or "",
+                    "snooze_count": t.get("snooze_count", 0),
+                    "due_date": t.get("due_date"),
+                    "start_date": t.get("start_date"),
+                    "estimated_duration": t.get("estimated_duration"),
+                    "category": t.get("category"),
+                    "tags": t.get("tags") or [],
+                    "priority": t.get("priority"),
+                    "energy_level": t.get("energy_level"),
+                    "status": t.get("status"),
+                })
+
+        snoozed_events = []
+        for doc in events_ref.stream():
+            e = doc.to_dict()
+            if (e.get("snooze_count") or 0) > 0:
+                start_str = e.get("start")
+                end_str = e.get("end")
+                duration_mins = None
+                if start_str and end_str:
+                    try:
+                        s_dt = parse_iso(start_str)
+                        e_dt = parse_iso(end_str)
+                        if s_dt and e_dt:
+                            duration_mins = int((e_dt - s_dt).total_seconds() / 60)
+                    except Exception:
+                        pass
+                snoozed_events.append({
+                    "id": e.get("id") or doc.id,
+                    "type": "event",
+                    "title": e.get("title", "Untitled"),
+                    "description": e.get("description") or "",
+                    "snooze_count": e.get("snooze_count", 0),
+                    "start": start_str,
+                    "end": end_str,
+                    "duration_mins": duration_mins,
+                    "category": e.get("category"),
+                    "location": e.get("location") or "",
+                    "completion_status": e.get("completion_status"),
+                })
+
+        return {"status": "success", "tasks": snoozed_tasks, "events": snoozed_events}
+    except Exception as e:
+        print(f"[Snoozed Items Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/analytics/clear-snooze")
+async def clear_snooze(
+    req: ClearSnoozeRequest,
+    _token=Depends(verify_firebase_token),
+):
+    try:
+        if req.item_type == "task":
+            ref = (
+                deps.db.collection("users")
+                .document(req.user_id)
+                .collection("raw_tasks")
+                .document(req.item_id)
+            )
+        elif req.item_type == "event":
+            ref = (
+                deps.db.collection("users")
+                .document(req.user_id)
+                .collection("raw_events")
+                .document(req.item_id)
+            )
+        else:
+            raise HTTPException(status_code=400, detail="item_type must be 'task' or 'event'")
+
+        if not ref.get().exists:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        ref.update({"snooze_count": 0})
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Clear Snooze Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/analytics/reset-refunded/{user_id}")
+async def reset_refunded_counter(
+    user_id: str,
+    _token=Depends(verify_firebase_token),
+):
+    """Store the current calculated time_refunded total as an offset so the
+    displayed counter resets to zero from this point forward."""
+    try:
+        events_ref = deps.db.collection("users").document(user_id).collection("raw_events")
+        current_total = 0
+        for doc in events_ref.stream():
+            e = doc.to_dict()
+            if e.get("is_reclaimed_debt") and e.get("completion_status") != "missed":
+                s = parse_iso(e.get("start"))
+                end = parse_iso(e.get("end"))
+                if s and end:
+                    current_total += max(0, int((end - s).total_seconds() / 60))
+
+        deps.db.collection("users").document(user_id).update(
+            {"time_refunded_offset": current_total}
+        )
+        return {"status": "success", "offset_set": current_total}
+    except Exception as e:
+        print(f"[Reset Refunded Error] {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -40,7 +40,7 @@ from router import MultiSignalRouter
 from IntentEngine import IntentExecutionEngine
 from llm_duration import DurationEstimator
 
-INTENT_PATH = "./modernbert_intent_model/checkpoint-2160"
+INTENT_PATH = "./modernbert_intent_modelv2/checkpoint-2160"
 NER_PATH = "./modernbert_ner_model/checkpoint-3987"
 CENTROIDS_PATH = "./intent_centroids.npy"
 
@@ -78,7 +78,14 @@ async def lifespan(app: FastAPI):
         print("AI Model Loaded Successfully.")
     except Exception as e:
         print(f"Warning: Could not load AI model files. Error: {e}")
+
+    # Start the preference-parsing background worker
+    import asyncio
+    from routers.pref_queue import worker as pref_worker
+    pref_task = asyncio.create_task(pref_worker())
+    print("Preference queue worker started.")
     yield
+    pref_task.cancel()
     print("Shutting down.")
 
 

@@ -705,6 +705,35 @@ def train_and_save_model(
         json.dump(meta, f, indent=2)
     print(f"[Save] Metadata: {meta_path}")
 
+    # Save training log to a text file
+    log_path = output_path.replace(".pkl", "_training_log.txt")
+    with open(log_path, "w") as f:
+        f.write("=== Procrastination Risk Model — Training Log ===\n\n")
+        f.write("--- Cross-Validation (AUC) ---\n")
+        f.write(f"  Folds:  {np.round(cv_scores, 3).tolist()}\n")
+        f.write(f"  Mean:   {cv_scores.mean():.4f}\n")
+        f.write(f"  Std:    {cv_scores.std():.4f}\n\n")
+        f.write("--- Best Hyperparameters ---\n")
+        for k, v in best_params.items():
+            f.write(f"  {k}: {v}\n")
+        f.write(f"\n--- Optimal Threshold ---\n")
+        f.write(f"  Threshold: {optimal_threshold:.4f}\n\n")
+        f.write("--- Evaluation (Optimal Threshold) ---\n")
+        f.write(classification_report(y_test, y_pred_optimal, target_names=["Completed", "Missed"]))
+        f.write(f"\nROC-AUC Score: {auc_score:.4f}\n\n")
+        f.write("--- Confusion Matrix ---\n")
+        f.write(f"  True Negatives  (correctly completed): {cm[0][0]}\n")
+        f.write(f"  False Positives (wrongly flagged):     {cm[0][1]}\n")
+        f.write(f"  False Negatives (missed warnings):     {cm[1][0]}\n")
+        f.write(f"  True Positives  (correctly flagged):   {cm[1][1]}\n\n")
+        f.write("--- Brier Score Calibration ---\n")
+        for k, v in brier_results.items():
+            f.write(f"  {k}: {v}\n")
+        f.write("\n--- Feature Importance ---\n")
+        for _, row in feat_imp.iterrows():
+            f.write(f"  {row['Feature']:<25} {row['Importance']:.4f}\n")
+    print(f"[Save] Training log: {log_path}")
+
     return model, explainer, meta
 
 

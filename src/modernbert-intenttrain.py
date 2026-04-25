@@ -22,7 +22,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 # --- CONFIGURATION ---
 MODEL_ID = "answerdotai/ModernBERT-base"
 DATA_DIR = "./modernbert_data"
-OUTPUT_DIR = "./modernbert_intent_model"
+OUTPUT_DIR = "./modernbert_intent_modelv2"
 
 MAX_LENGTH = 128
 BATCH_SIZE = 32
@@ -154,7 +154,19 @@ def main():
     print(f"\nSaving final model to {OUTPUT_DIR}...")
     trainer.save_model(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
-    
+
+    # Save training logs to a text file
+    log_path = f"{OUTPUT_DIR}/training_log.txt"
+    with open(log_path, "w") as f:
+        f.write("=== ModernBERT Intent Training Log ===\n\n")
+        f.write("--- Training History ---\n")
+        for entry in trainer.state.log_history:
+            f.write(str(entry) + "\n")
+        f.write("\n--- Final Strict Test Results ---\n")
+        for key, value in strict_results.items():
+            f.write(f"  {key}: {value:.4f}\n")
+    print(f"Training log saved to {log_path}")
+
     print("Process finished successfully.")
 
 if __name__ == "__main__":

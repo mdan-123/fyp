@@ -25,11 +25,19 @@ type PreferencesListResponse = {
 };
 
 type ParsePreferenceResponse = {
-  status: string;
-  saved_preferences: {
-    id: string;
-    data: Omit<Preference, "id">;
-  }[];
+  status: "queued";
+  job_id: string;
+};
+
+type JobResponse = {
+  job_id: string;
+  status: "queued" | "processing" | "done" | "failed";
+  result?: {
+    status: string;
+    saved_preferences?: Omit<Preference, never>[];
+    message?: string;
+  };
+  error?: string;
 };
 
 type OptimisationPreferencesProps = {
@@ -154,43 +162,100 @@ export default function OptimisationPreferences({
     }
   };
 
+  const pollJobStatus = async (jobId: string, token: string): Promise<void> => {
+    const POLL_INTERVAL_MS = 2500;
+    const MAX_POLLS = 40; // ~100 seconds max
+    let polls = 0;
+
+    return new Promise((resolve) => {
+      const check = async () => {
+        polls++;
+        if (polls > MAX_POLLS) {
+          console.error("Preference job timed out after max polls.");
+          setIsSubmitting(false);
+          resolve();
+          return;
+        }
+
+        try {
+          const res = await fetchWithRetry(
+            `${API_BASE_URL}/api/preferences/job/${jobId}`,
+            {
+              method: "GET",
+              headers: { Authorization: `Bearer ${token}` },
+              timeoutMs: 8000,
+            }
+          );
+
+          if (!res.ok) {
+            console.error("Job poll failed with status", res.status);
+            setIsSubmitting(false);
+            resolve();
+            return;
+          }
+
+          const job: JobResponse = await res.json();
+
+          if (job.status === "done") {
+            const saved = job.result?.saved_preferences ?? [];
+            if (saved.length > 0) {
+              setPreferences((prev) => [...(saved as Preference[]), ...prev]);
+            }
+            setInputText("");
+            setIsSubmitting(false);
+            resolve();
+          } else if (job.status === "failed") {
+            console.error("Preference job failed:", job.error);
+            setIsSubmitting(false);
+            resolve();
+          } else {
+            // still queued / processing — keep polling
+            setTimeout(check, POLL_INTERVAL_MS);
+          }
+        } catch (err) {
+          console.error("Error polling job status:", err);
+          setIsSubmitting(false);
+          resolve();
+        }
+      };
+
+      setTimeout(check, POLL_INTERVAL_MS);
+    });
+  };
+
   const handleSubmit = async (): Promise<void> => {
     if (!inputText.trim()) return;
     setIsSubmitting(true);
 
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
       const token = await auth.currentUser?.getIdToken();
+
       const res = await fetchWithRetry(`${API_BASE_URL}/api/preferences/parse`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           user_id: userId,
           raw_text: inputText,
-          timezone: tz
+          user_timezone: tz,
         }),
-        timeoutMs: 12000 
+        timeoutMs: 8000,
       });
 
-      if (res.ok) {
-        const result: ParsePreferenceResponse = await res.json();
-        
-        if (result.status === "success" && result.saved_preferences) {
-          const newPrefs = result.saved_preferences.map(item => ({
-            ...item.data,
-            id: item.id
-          }));
-          
-          setPreferences((prev) => [...newPrefs, ...prev]);
-          setInputText("");
-        } else {
-          console.error("Failed to parse preference payload:", result);
-        }
+      if (!res.ok) {
+        console.error("Failed to enqueue preference, status:", res.status);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const queued: ParsePreferenceResponse = await res.json();
+      if (queued.status === "queued" && queued.job_id) {
+        await pollJobStatus(queued.job_id, token ?? "");
+      } else {
+        setIsSubmitting(false);
       }
     } catch (err) {
       console.error("Error submitting preference:", err);
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -329,7 +394,7 @@ export default function OptimisationPreferences({
               disabled={!inputText.trim() || isSubmitting}
               className="px-6 py-2.5 text-sm font-bold rounded-xl transition-all disabled:opacity-50 active:scale-95 btn-primary"
             >
-              {isSubmitting ? "Saving..." : "Add Rule"}
+              {isSubmitting ? "Processing…" : "Add Rule"}
             </button>
           </div>
         </div>

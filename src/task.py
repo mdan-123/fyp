@@ -11,10 +11,14 @@ class TimeSlot:
         self.score = score
 
 class BaseScheduler:
-    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC"):
+    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC", skip_weekends: bool = False, routines_on_weekends: bool = False, scheduling_start_hour: int = 8, scheduling_end_hour: int = 22):
         self.existing_events = list(existing_events) 
         self.preferences = list(preferences)
-        self.interval_minutes = 15 
+        self.interval_minutes = 15
+        self.skip_weekends = skip_weekends
+        self.routines_on_weekends = routines_on_weekends
+        self.scheduling_start_hour = max(0, min(23, scheduling_start_hour))
+        self.scheduling_end_hour = max(self.scheduling_start_hour + 1, min(24, scheduling_end_hour))
         
         # --- THE FIX: DYNAMIC TIMEZONE INJECTION ---
         try:
@@ -49,8 +53,14 @@ class BaseScheduler:
             return None
 
     def _get_day_boundaries(self, target_date: datetime.date):
-        start_of_day_local = datetime.datetime.combine(target_date, datetime.time(8, 0), tzinfo=self.user_tz)
-        end_of_day_local = datetime.datetime.combine(target_date, datetime.time(22, 0), tzinfo=self.user_tz)
+        if self.skip_weekends and target_date.weekday() >= 5:
+            d = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz).astimezone(datetime.timezone.utc)
+            return d, d
+        start_of_day_local = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz)
+        if self.scheduling_end_hour == 24:
+            end_of_day_local = datetime.datetime.combine(target_date + datetime.timedelta(days=1), datetime.time(0, 0), tzinfo=self.user_tz)
+        else:
+            end_of_day_local = datetime.datetime.combine(target_date, datetime.time(self.scheduling_end_hour, 0), tzinfo=self.user_tz)
         
         # --- THE FIX: Block Time-Travel Booking ---
         now_utc = datetime.datetime.now(datetime.timezone.utc)
@@ -231,103 +241,12 @@ class BaseScheduler:
             best_slot = self._search_slots(target_date, duration_minutes, event_category, relax_hard_constraints=True, original_start_dt=original_start_dt)
         return best_slot
 
-    def _get_all_candidate_slots(self, target_date: datetime.date, duration_minutes: int, event_category: str, relax_hard_constraints: bool = False) -> List[TimeSlot]:
-        """Returns every feasible, scored slot for a given day."""
-        start_of_day, end_of_day = self._get_day_boundaries(target_date)
-        current_time = start_of_day
-        candidates = []
-
-        while current_time + datetime.timedelta(minutes=duration_minutes) <= end_of_day:
-            slot_end = current_time + datetime.timedelta(minutes=duration_minutes)
-            if not self._is_overlapping(current_time, slot_end):
-                gaps = self._calculate_gaps(current_time, slot_end)
-                if relax_hard_constraints or not self._fails_hard_constraints(current_time, slot_end, event_category, gaps):
-                    score = self._score_soft_constraints(current_time, slot_end, event_category, gaps, relax_hard_constraints, None)
-                    candidates.append(TimeSlot(current_time, slot_end, score))
-            current_time += datetime.timedelta(minutes=self.interval_minutes)
-
-        return candidates
-
-    def _get_all_candidates_across_days(self, start_date: datetime.date, end_date: datetime.date, duration_minutes: int, event_category: str, due_dt: Optional[datetime.datetime], scheduled_dates: List[datetime.date], relax_hard_constraints: bool = False) -> List[TimeSlot]:
-        """Returns all candidate slots across a date range, with spacing penalties applied."""
-        all_candidates = []
-        max_days = min((end_date - start_date).days + 1, 60)
-
-        for i in range(max_days):
-            current_date = start_date + datetime.timedelta(days=i)
-            for slot in self._get_all_candidate_slots(current_date, duration_minutes, event_category, relax_hard_constraints):
-                if due_dt and slot.end > due_dt:
-                    continue
-                spacing_penalty = 0
-                for prev_date in scheduled_dates:
-                    diff_days = abs((current_date - prev_date).days)
-                    if diff_days == 0: spacing_penalty += 3000
-                    elif diff_days == 1: spacing_penalty += 800
-                    elif diff_days == 2: spacing_penalty += 300
-                    elif diff_days == 3: spacing_penalty += 100
-                slot.score -= spacing_penalty
-                all_candidates.append(slot)
-
-        return all_candidates
-
-    def _holistic_assign(self, items_with_candidates: List[tuple]) -> Dict:
-        """
-        Globally optimal, non-conflicting assignment of items to time slots.
-
-        Instead of placing items one at a time (greedy / first-come-first-served),
-        this explores every valid combination of (item → slot) assignments and picks
-        the one that maximises total score, with placement count taking priority.
-
-        Uses backtracking with branch-and-bound pruning.
-        Practical for ≤ 8 items with ≤ 20 candidates each.
-
-        items_with_candidates: List of (key, List[TimeSlot]) — key can be any hashable.
-        Returns: dict mapping key -> TimeSlot for the optimal assignment.
-        """
-        if not items_with_candidates:
-            return {}
-
-        n = len(items_with_candidates)
-        prepared = [
-            (key, sorted(cands, key=lambda s: s.score, reverse=True)[:20])
-            for key, cands in items_with_candidates
-        ]
-        best_possible = [max((s.score for s in c), default=0) for _, c in prepared]
-
-        state: Dict = {"placed": -1, "score": float("-inf"), "assignment": {}}
-
-        def backtrack(idx: int, assignment: Dict, placed: int, score: int) -> None:
-            if idx == n:
-                if placed > state["placed"] or (placed == state["placed"] and score > state["score"]):
-                    state.update(placed=placed, score=score, assignment=dict(assignment))
-                return
-
-            remaining = n - idx
-            if placed + remaining < state["placed"]:
-                return
-            if placed + remaining == state["placed"]:
-                if score + sum(best_possible[j] for j in range(idx, n)) <= state["score"]:
-                    return
-
-            key, candidates = prepared[idx]
-            for slot in candidates:
-                if any(slot.start < a.end and slot.end > a.start for a in assignment.values()):
-                    continue
-                assignment[key] = slot
-                backtrack(idx + 1, assignment, placed + 1, score + slot.score)
-                del assignment[key]
-
-            # Allow skipping so the solver can trade one item for a better global fit
-            backtrack(idx + 1, assignment, placed, score)
-
-        backtrack(0, {}, 0, 0)
-        return state["assignment"]
 
 
 class TaskScheduler(BaseScheduler):
-    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC"):
+    def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC", skip_weekends: bool = False, scheduling_start_hour: int = 8, scheduling_end_hour: int = 22):
         # --- THE FIX: PASS DYNAMIC TIMEZONE UP ---
-        super().__init__(existing_events, preferences, user_tz_string=user_tz_string)
+        super().__init__(existing_events, preferences, user_tz_string=user_tz_string, skip_weekends=skip_weekends, scheduling_start_hour=scheduling_start_hour, scheduling_end_hour=scheduling_end_hour)
         self.interval_minutes = 5
 
     def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
@@ -355,204 +274,258 @@ class TaskScheduler(BaseScheduler):
             return "SHALLOW_WORK"
         return "SHALLOW_WORK"
 
-    def _find_best_slot_across_days(self, start_date: datetime.date, end_date: datetime.date, duration: int, category: str, due_dt: Optional[datetime.datetime], scheduled_dates: List[datetime.date]) -> Optional[TimeSlot]:
-        overall_best = None
-        delta = end_date - start_date
-        max_days = min(delta.days + 1, 60)
-        
-        for i in range(max_days):
-            current_date = start_date + datetime.timedelta(days=i)
-            slot = self.find_best_slot(current_date, duration, category)
-            
-            if slot:
-                if due_dt and slot.end > due_dt:
-                    continue
-                
-                spacing_penalty = 0
-                for prev_date in scheduled_dates:
-                    diff_days = abs((current_date - prev_date).days)
-                    if diff_days == 0: spacing_penalty += 3000
-                    elif diff_days == 1: spacing_penalty += 800  
-                    elif diff_days == 2: spacing_penalty += 300  
-                    elif diff_days == 3: spacing_penalty += 100
-                        
-                slot.score -= spacing_penalty
-                
-                if not overall_best or slot.score > overall_best.score:
-                    overall_best = slot
-                    
-        return overall_best
+    def _determine_chunks(self, task: Dict[str, Any]) -> List[int]:
+        """Pre-determine the list of chunk durations for a task without committing any slots."""
+        total = task["estimated_duration"]
+        energy = task.get("energy_level", "medium").lower()
+        if energy == "high":
+            min_chunk, max_chunk = 45, 90
+        elif energy == "low":
+            min_chunk, max_chunk = 15, 60
+        else:
+            min_chunk, max_chunk = 30, 120
+        min_chunk = min(min_chunk, total)
+        chunks: List[int] = []
+        remaining = total
+        while remaining > 0:
+            chunk = min(remaining, max_chunk)
+            if chunk < min_chunk:
+                if chunks:
+                    chunks[-1] += chunk
+                else:
+                    chunks.append(chunk)
+                break
+            chunks.append(chunk)
+            remaining -= chunk
+        return chunks
 
-    def schedule_tasks(self, start_date: datetime.date, fallback_end_date: datetime.date, pending_tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        scheduled_task_events = []
+    def _collect_top_k_slots(self, start_date: datetime.date, end_date: datetime.date,
+                              duration: int, category: str, due_dt: Optional[datetime.datetime],
+                              k: int = 10) -> List[TimeSlot]:
+        """Return the top-k scoring candidate slots across the date range.
+        Purely a read operation — does not commit anything to the calendar."""
+        seen: set = set()
+        collected: List[TimeSlot] = []
+        max_days = min((end_date - start_date).days + 1, 60)
+        for relax in (False, True):
+            if len(collected) >= k:
+                break
+            for i in range(max_days):
+                current_date = start_date + datetime.timedelta(days=i)
+                start_of_day, end_of_day = self._get_day_boundaries(current_date)
+                t = start_of_day
+                while t + datetime.timedelta(minutes=duration) <= end_of_day:
+                    slot_end = t + datetime.timedelta(minutes=duration)
+                    slot_key = (t, slot_end)
+                    if slot_key not in seen and not self._is_overlapping(t, slot_end):
+                        if due_dt is None or slot_end <= due_dt:
+                            gaps = self._calculate_gaps(t, slot_end)
+                            hard_fail = self._fails_hard_constraints(t, slot_end, category, gaps)
+                            if not hard_fail or relax:
+                                score = self._score_soft_constraints(
+                                    t, slot_end, category, gaps, relax, None
+                                )
+                                collected.append(TimeSlot(t, slot_end, score))
+                                seen.add(slot_key)
+                    t += datetime.timedelta(minutes=self.interval_minutes)
+        collected.sort(key=lambda s: s.score, reverse=True)
+        return collected[:k]
+
+    def schedule_tasks(self, start_date: datetime.date, fallback_end_date: datetime.date,
+                       pending_tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        scheduled_task_events: List[Dict[str, Any]] = []
         valid_tasks = [t for t in pending_tasks if t.get("estimated_duration")]
-        valid_tasks.sort(key=lambda t: (t.get("priority", 3), t.get("due_date") or "9999-12-31T23:59:59Z"))
 
-        # Build per-task state so we can track progress across holistic rounds
-        task_states = []
+        # Sort: earlier due date first; break ties by higher priority (lower number = more urgent)
+        valid_tasks.sort(key=lambda t: (
+            t.get("due_date") or "9999-12-31T23:59:59Z",
+            t.get("priority", 3)
+        ))
+
+        print("\n" + "="*60)
+        print(f"[TaskScheduler] INCOMING TASKS ({len(pending_tasks)} total, {len(valid_tasks)} with duration)")
+        print(f"[TaskScheduler]    Scheduling window: {start_date} -> {fallback_end_date}")
+        print("="*60)
+        skipped_no_duration = [t for t in pending_tasks if not t.get("estimated_duration")]
+        if skipped_no_duration:
+            print(f"[TaskScheduler] WARNING: SKIPPED (no estimated_duration): {[t.get('title') for t in skipped_no_duration]}")
+        for t in valid_tasks:
+            print(f"[TaskScheduler]   * '{t.get('title')}' | duration={t.get('estimated_duration')}min | due={t.get('due_date','NO DUE DATE')} | priority={t.get('priority',3)} | energy={t.get('energy_level','medium')}")
+        print(f"[TaskScheduler] Scheduling order: earlier due date first, then higher priority (lower number)")
+
+        # ── Sequential scheduling: each task is scheduled with full awareness of the live calendar ──
+        # This ensures every chunk gets a real free slot, not a pre-collected stale candidate.
         for task in valid_tasks:
-            energy = task.get("energy_level", "medium").lower()
-            if energy == "high":
-                min_chunk, max_chunk = 45, 90
-            elif energy == "low":
-                min_chunk, max_chunk = 15, 60
-            else:
-                min_chunk, max_chunk = 30, 120
-            min_chunk = min(min_chunk, task["estimated_duration"])
-
             due_date_str = task.get("due_date")
-            if due_date_str:
-                due_dt = self._parse_dt(due_date_str)
-                task_end_date = due_dt.date() if due_dt else fallback_end_date
-            else:
-                due_dt = None
-                task_end_date = fallback_end_date
+            due_dt = self._parse_dt(due_date_str) if due_date_str else None
+            task_end_date = due_dt.date() if due_dt else fallback_end_date
 
-            task_states.append({
-                "task": task,
-                "remaining": task["estimated_duration"],
-                "scheduled_dates": [],
-                "chunk_count": 0,
-                "min_chunk": min_chunk,
-                "max_chunk": max_chunk,
-                "category": self._map_task_to_category(task),
-                "due_dt": due_dt,
-                "task_end_date": task_end_date,
-            })
+            if task_end_date < start_date:
+                print(f"\n[TaskScheduler] SKIPPED '{task.get('title')}' -- due {task_end_date} is before start {start_date}")
+                continue
 
-        # Round-based holistic scheduling: each round assigns one chunk per task simultaneously.
-        # All candidates are generated before any slot is committed, so every task sees the
-        # same unmodified free time and the solver finds the globally optimal non-conflicting set.
-        MAX_ROUNDS = 20
-        for _ in range(MAX_ROUNDS):
-            items_with_candidates = []   # (idx, candidates)
-            attempt_durations: Dict[int, int] = {}
+            chunks = self._determine_chunks(task)
+            category = self._map_task_to_category(task)
+            total_days = max(1, (task_end_date - start_date).days)
+            # Space chunks evenly: minimum gap between consecutive chunks of the same task
+            min_spacing = max(1, total_days // len(chunks))
+            total_chunk_min = sum(chunks)
 
-            for idx, state in enumerate(task_states):
-                if state["remaining"] <= 0:
-                    continue
-                if state["task_end_date"] < start_date:
-                    state["remaining"] = 0
-                    continue
+            print(f"\n[TaskScheduler] -- Task '{task.get('title')}' | {task.get('estimated_duration')}min | {len(chunks)} chunks={chunks} (sum={total_chunk_min}min) | window {start_date}->{task_end_date} ({total_days}d) | min_spacing={min_spacing}d --")
 
-                # Determine chunk size, shrinking until we find candidates
-                attempt_duration = min(state["remaining"], state["max_chunk"])
-                candidates: List[TimeSlot] = []
-                while attempt_duration >= state["min_chunk"]:
-                    candidates = self._get_all_candidates_across_days(
-                        start_date, state["task_end_date"], attempt_duration,
-                        state["category"], state["due_dt"], state["scheduled_dates"]
-                    )
-                    if candidates:
+            days_used_by_task: set = set()
+            last_date: Optional[datetime.date] = None
+            parts_placed = 0
+            total_scheduled_min = 0
+
+            for chunk_idx, chunk_dur in enumerate(chunks):
+                placed = False
+
+                # Pass 1: strict spacing (evenly spread across window)
+                # Pass 2: relax spacing but still enforce no-same-day
+                for relax_spacing in (False, True):
+                    if placed:
                         break
-                    next_attempt = max(15, round((attempt_duration // 2) / 15) * 15)
-                    if next_attempt < state["min_chunk"]:
-                        break
-                    attempt_duration = next_attempt
+                    if relax_spacing:
+                        print(f"[TaskScheduler]     Chunk[{chunk_idx}] ({chunk_dur}min): no slot with >={min_spacing}d spacing, relaxing spacing...")
 
-                if candidates:
-                    items_with_candidates.append((idx, candidates))
-                    attempt_durations[idx] = attempt_duration
+                    for i in range(total_days + 1):
+                        candidate_date = start_date + datetime.timedelta(days=i)
+                        if candidate_date > task_end_date:
+                            break
+                        # Never schedule two chunks of the same task on the same day
+                        if candidate_date in days_used_by_task:
+                            continue
+                        # Enforce minimum spacing between chunks of this task
+                        if not relax_spacing and last_date is not None:
+                            if (candidate_date - last_date).days < min_spacing:
+                                continue
 
-            if not items_with_candidates:
-                break
+                        slot = self.find_best_slot(candidate_date, chunk_dur, category)
+                        if slot:
+                            days_used_by_task.add(candidate_date)
+                            last_date = candidate_date
+                            parts_placed += 1
+                            total_scheduled_min += chunk_dur
+                            is_multipart = len(chunks) > 1
+                            title = (
+                                f"{task.get('title')} (Part {parts_placed})"
+                                if is_multipart else task.get('title')
+                            )
+                            local_start = slot.start.astimezone(self.user_tz)
+                            local_end = slot.end.astimezone(self.user_tz)
+                            print(f"[TaskScheduler]     OK Chunk[{chunk_idx}] '{title}' | {local_start.strftime('%Y-%m-%d %H:%M')} -> {local_end.strftime('%H:%M')} ({chunk_dur}min) | score={slot.score}")
 
-            # Holistically find the globally optimal non-conflicting assignment
-            assignment = self._holistic_assign(items_with_candidates)
-            if not assignment:
-                break
+                            ghost_event = {
+                                "id": f"evt_task_{uuid.uuid4().hex[:8]}",
+                                "title": title,
+                                "start": slot.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                "end": slot.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                "is_locked": True,
+                                "provider": "tasks",
+                                "status": "synced",
+                                "requires_review": False,
+                                "has_drifted": False,
+                                "category": category,
+                                "is_ghost": True,
+                                "linked_task_id": task.get("id"),
+                            }
+                            self.existing_events.append(ghost_event)
+                            scheduled_task_events.append(ghost_event)
+                            placed = True
+                            break
 
-            # Commit placed chunks and update state
-            for idx, slot in assignment.items():
-                state = task_states[idx]
-                task = state["task"]
-                state["chunk_count"] += 1
-                attempt_duration = attempt_durations[idx]
+                if not placed:
+                    print(f"[TaskScheduler]     FAILED Chunk[{chunk_idx}] ({chunk_dur}min): no free slot found in {total_days}-day window")
 
-                is_multi = state["remaining"] < task["estimated_duration"] or state["chunk_count"] > 1
-                title = f"{task.get('title')} (Part {state['chunk_count']})" if is_multi else task.get("title")
+            needed = sum(chunks)
+            status = "FULLY SCHEDULED" if total_scheduled_min >= needed else f"PARTIAL ({total_scheduled_min}/{needed}min)"
+            print(f"[TaskScheduler]   -> '{task.get('title')}': {parts_placed}/{len(chunks)} chunks placed, {total_scheduled_min}/{needed}min | {status}")
 
-                ghost_event = {
-                    "id": f"evt_task_{uuid.uuid4().hex[:8]}",
-                    "title": title,
-                    "start": slot.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    "end": slot.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                    "is_locked": True,
-                    "provider": "tasks",
-                    "status": "synced",
-                    "requires_review": False,
-                    "has_drifted": False,
-                    "category": state["category"],
-                    "is_ghost": True,
-                    "linked_task_id": task.get("id")
-                }
-                self.existing_events.append(ghost_event)
-                scheduled_task_events.append(ghost_event)
-                state["remaining"] -= attempt_duration
-                state["scheduled_dates"].append(slot.start.date())
-
+        print(f"\n[TaskScheduler] Done. {len(scheduled_task_events)} ghost events created.")
+        print("="*60 + "\n")
         return scheduled_task_events
     
 class DebtRescheduler(BaseScheduler):
+    def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
+        """Override: block on ALL calendar entries regardless of is_locked status,
+        so debt is never placed on top of any existing event."""
+        for event in self.existing_events:
+            event_start = self._parse_dt(event.get("start"))
+            event_end = self._parse_dt(event.get("end"))
+            if not event_start or not event_end:
+                continue
+            travel_time = event.get("travel_time", 0)
+            if travel_time > 0:
+                event_start = event_start - datetime.timedelta(minutes=travel_time)
+            if slot_start < event_end and slot_end > event_start:
+                return True
+        return False
+
     def schedule_debt(self, start_date: datetime.date, end_date: datetime.date, debt_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         print(f"\n[DebtRescheduler] 🧠 Booting up. Attempting to fill gaps with {len(debt_items)} reclaimed items...")
         ghost_events = []
-
-        max_days = min((end_date - start_date).days + 1, 14)
-        window_end = start_date + datetime.timedelta(days=max_days - 1)
-
+        
+        delta = end_date - start_date
+        max_days = min(delta.days + 1, 14) 
+        
         debt_items.sort(key=lambda x: x.get("priority", 3))
 
-        # Generate ALL candidates for every debt item up-front (before placing any).
-        # This ensures the holistic solver sees unmodified free time for all items.
-        items_with_meta = []
         for item in debt_items:
             duration = item.get("duration", 60)
             category = "DEEP_WORK" if item.get("priority", 3) <= 2 else "SHALLOW_WORK"
-            if item.get("original_type") == "event":
+            if item.get("original_type") == "event": 
                 category = "MEETING"
 
-            candidates = self._get_all_candidates_across_days(start_date, window_end, duration, category, None, [])
-            if not candidates:
-                candidates = self._get_all_candidates_across_days(start_date, window_end, duration, category, None, [], relax_hard_constraints=True)
+            print(f"[DebtRescheduler] 🎯 Finding earliest gap for: '{item.get('title')}' ({duration} mins | {category})")
+            
+            best_slot_found = None
+            best_negative_slot = None
+            
+            for i in range(max_days):
+                current_date = start_date + datetime.timedelta(days=i)
+                slot = self.find_best_slot(current_date, duration, category)
+                
+                if slot:
+                    if slot.score >= 0:
+                        best_slot_found = slot
+                        break 
+                    else:
+                        if not best_negative_slot or slot.score > best_negative_slot.score:
+                            best_negative_slot = slot
+            
+            if not best_slot_found and best_negative_slot:
+                print(f"[DebtRescheduler]   ⚠️ Perfect gap not found. Using best available fallback.")
+                best_slot_found = best_negative_slot
 
-            print(f"[DebtRescheduler] 🎯 '{item.get('title')}' ({duration} mins | {category}) — {len(candidates)} candidate slots")
-            items_with_meta.append((item, category, candidates))
+            if best_slot_found:
+                local_start = best_slot_found.start.astimezone(self.user_tz)
+                print(f"[DebtRescheduler]   ✅ Placed on {local_start.date()} at {local_start.strftime('%H:%M')} (Score: {best_slot_found.score})")
+                
+                start_str = best_slot_found.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                end_str = best_slot_found.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        # Holistically find the globally optimal non-conflicting assignment
-        solver_input = [(idx, cands) for idx, (_, _, cands) in enumerate(items_with_meta)]
-        assignment = self._holistic_assign(solver_input)
-
-        # Commit placed items
-        for idx, slot in assignment.items():
-            item, category, _ = items_with_meta[idx]
-            local_start = slot.start.astimezone(self.user_tz)
-            print(f"[DebtRescheduler]   ✅ Placed '{item.get('title')}' on {local_start.date()} at {local_start.strftime('%H:%M')} (Score: {slot.score})")
-
-            ghost_event = {
-                "id": f"ghost_debt_{uuid.uuid4().hex[:8]}",
-                "title": item.get("title"),
-                "start": slot.start.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                "end": slot.end.astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                "is_locked": True,
-                "provider": "tasks" if item.get("original_type") == "task" else "custom",
-                "status": "synced",
-                "requires_review": False,
-                "has_drifted": False,
-                "category": category,
-                "is_ghost": True,
-                "linked_task_id": item.get("id") if item.get("original_type") == "task" else None,
-                "linked_event_id": item.get("id") if item.get("original_type") == "event" else None,
-                "debt_duration": item.get("duration", 60)
-            }
-            self.existing_events.append(ghost_event)
-            ghost_events.append(ghost_event)
-
-        # Report unplaced items
-        placed = set(assignment.keys())
-        for idx, (item, _, _) in enumerate(items_with_meta):
-            if idx not in placed:
-                print(f"[DebtRescheduler]   ❌ FAILED to find any non-overlapping {item.get('duration', 60)}m slot for '{item.get('title')}' within {max_days} days.")
+                ghost_event = {
+                    "id": f"ghost_debt_{uuid.uuid4().hex[:8]}",
+                    "title": item.get('title'), 
+                    "start": start_str,
+                    "end": end_str,
+                    "is_locked": True,
+                    "provider": "tasks" if item.get("original_type") == "task" else "custom",
+                    "status": "synced",
+                    "requires_review": False,
+                    "has_drifted": False,
+                    "category": category,
+                    "is_ghost": True,
+                    "linked_task_id": item.get("id") if item.get("original_type") == "task" else None,
+                    "linked_event_id": item.get("id") if item.get("original_type") == "event" else None,
+                    "debt_duration": duration 
+                }
+                
+                self.existing_events.append(ghost_event)
+                ghost_events.append(ghost_event)
+            else:
+                print(f"[DebtRescheduler]   ❌ FAILED to find any non-overlapping {duration}m slot within {max_days} days.")
 
         print(f"[DebtRescheduler] 🏁 Finished. Successfully slotted {len(ghost_events)} catch-up blocks.")
         return ghost_events

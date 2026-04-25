@@ -26,6 +26,16 @@ class ShowWeekendsRequest(BaseModel):
     show_weekends: bool
 
 
+class SchedulingSettingsRequest(BaseModel):
+    user_id: str
+    optimisation_window_days: int = 7
+    optimise_weekends: bool = False
+    schedule_on_weekends: bool = False
+    routines_on_weekends: bool = False
+    scheduling_start_hour: int = 8
+    scheduling_end_hour: int = 22
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -127,4 +137,67 @@ async def get_show_weekends(
         return {"status": "success", "show_weekends": user_doc.to_dict().get("show_weekends", True)}
     except Exception as e:
         print(f"[ShowWeekends] Error fetching for {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/users/scheduling-settings")
+async def set_scheduling_settings(
+    req: SchedulingSettingsRequest,
+    _token=Depends(verify_firebase_token),
+):
+    try:
+        deps.db.collection("users").document(req.user_id).set(
+            {
+                "optimisation_window_days": req.optimisation_window_days,
+                "optimise_weekends": req.optimise_weekends,
+                "schedule_on_weekends": req.schedule_on_weekends,
+                "routines_on_weekends": req.routines_on_weekends,
+                "scheduling_start_hour": req.scheduling_start_hour,
+                "scheduling_end_hour": req.scheduling_end_hour,
+            },
+            merge=True,
+        )
+        return {
+            "status": "success",
+            "optimisation_window_days": req.optimisation_window_days,
+            "optimise_weekends": req.optimise_weekends,
+            "schedule_on_weekends": req.schedule_on_weekends,
+            "routines_on_weekends": req.routines_on_weekends,
+            "scheduling_start_hour": req.scheduling_start_hour,
+            "scheduling_end_hour": req.scheduling_end_hour,
+        }
+    except Exception as e:
+        print(f"[SchedulingSettings] Error for {req.user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/users/scheduling-settings/{user_id}")
+async def get_scheduling_settings(
+    user_id: str,
+    _token=Depends(verify_firebase_token),
+):
+    try:
+        user_doc = deps.db.collection("users").document(user_id).get()
+        if not user_doc.exists:
+            return {
+                "status": "success",
+                "optimisation_window_days": 7,
+                "optimise_weekends": False,
+                "schedule_on_weekends": False,
+                "routines_on_weekends": False,
+                "scheduling_start_hour": 8,
+                "scheduling_end_hour": 22,
+            }
+        data = user_doc.to_dict()
+        return {
+            "status": "success",
+            "optimisation_window_days": data.get("optimisation_window_days", 7),
+            "optimise_weekends": data.get("optimise_weekends", False),
+            "schedule_on_weekends": data.get("schedule_on_weekends", False),
+            "routines_on_weekends": data.get("routines_on_weekends", False),
+            "scheduling_start_hour": data.get("scheduling_start_hour", 8),
+            "scheduling_end_hour": data.get("scheduling_end_hour", 22),
+        }
+    except Exception as e:
+        print(f"[SchedulingSettings] Error fetching for {user_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

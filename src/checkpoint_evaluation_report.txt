@@ -1,0 +1,731 @@
+================================================================================
+  MODERNBERT CHECKPOINT EVALUATION REPORT
+  Generated : 2026-04-22 20:46:33
+  Device    : mps
+================================================================================
+
+================================================================================
+  INTENT MODEL — CHECKPOINT EVALUATION
+  Model base : ./modernbert_intent_modelv2
+  Holdout    : ./modernbert_data/multilabel_intent_strict_validation.jsonl
+  Samples    : 4992 utterances  |  16 classes
+================================================================================
+
+  Checkpoint : checkpoint-720
+--------------------------------------------------------------------------------
+    eval_loss              : 0.061537
+    bce_loss               : 0.061537
+    threshold (auto-tuned) : 0.25
+    f1_macro               : 0.838108
+    f1_micro               : 0.838387
+    f1_weighted            : 0.839902
+    f1_samples             : 0.819605
+    precision_macro        : 0.847344
+    precision_micro        : 0.832260
+    precision_weighted     : 0.845454
+    recall_macro           : 0.838863
+    recall_micro           : 0.844605
+    recall_weighted        : 0.844605
+    hamming_loss           : 0.023087
+    exact_match_ratio      : 0.739583
+    any_correct_ratio      : 0.861178
+    roc_auc_macro          : 0.988709
+    mcc (binary flat)      : 0.825983
+    avg_labels_predicted   : 1.151
+    avg_labels_true        : 1.134
+
+    Class                         F1  Precision    Recall
+    ----------------------  --------  ---------  --------
+    CREATE_EVENT              0.8067     0.7219    0.9140
+    UPDATE_EVENT              0.7737     0.6768    0.9030
+    DELETE_EVENT              0.8655     0.8276    0.9070
+    QUERY_EVENT               0.6998     0.8225    0.6090
+    FIND_FREE_TIME            0.5665     0.5108    0.6358
+    SUGGEST_TIME              0.9797     0.9628    0.9972
+    CHANGE_RECURRENCE         0.9888     0.9904    0.9872
+    CREATE_TASK               0.8923     0.8683    0.9178
+    UPDATE_TASK               0.8661     0.9450    0.7994
+    DELETE_TASK               0.8529     0.8709    0.8357
+    COMPLETE_TASK             0.8969     0.8944    0.8994
+    QUERY_TASK                0.9406     0.9450    0.9364
+    SET_REMINDER              0.8917     0.9907    0.8106
+    UPDATE_REMINDER           0.7240     0.8211    0.6474
+    DELETE_REMINDER           0.9474     0.9730    0.9231
+    SET_PREFERENCES           0.7171     0.7365    0.6987
+
+  Checkpoint : checkpoint-1440
+--------------------------------------------------------------------------------
+    eval_loss              : 0.057661
+    bce_loss               : 0.057661
+    threshold (auto-tuned) : 0.25
+    f1_macro               : 0.852205
+    f1_micro               : 0.857143
+    f1_weighted            : 0.854489
+    f1_samples             : 0.836599
+    precision_macro        : 0.864695
+    precision_micro        : 0.855559
+    precision_weighted     : 0.861595
+    recall_macro           : 0.851542
+    recall_micro           : 0.858732
+    recall_weighted        : 0.858732
+    hamming_loss           : 0.020295
+    exact_match_ratio      : 0.774038
+    any_correct_ratio      : 0.869191
+    roc_auc_macro          : 0.989976
+    mcc (binary flat)      : 0.846221
+    avg_labels_predicted   : 1.139
+    avg_labels_true        : 1.134
+
+    Class                         F1  Precision    Recall
+    ----------------------  --------  ---------  --------
+    CREATE_EVENT              0.8062     0.7173    0.9203
+    UPDATE_EVENT              0.7935     0.7407    0.8544
+    DELETE_EVENT              0.9252     0.8986    0.9535
+    QUERY_EVENT               0.6940     0.8304    0.5962
+    FIND_FREE_TIME            0.5905     0.5535    0.6328
+    SUGGEST_TIME              0.9931     0.9918    0.9945
+    CHANGE_RECURRENCE         0.9598     0.9281    0.9936
+    CREATE_TASK               0.8947     0.8608    0.9315
+    UPDATE_TASK               0.9133     0.9080    0.9186
+    DELETE_TASK               0.9211     0.9171    0.9251
+    COMPLETE_TASK             0.9153     0.9257    0.9050
+    QUERY_TASK                0.9466     0.9538    0.9394
+    SET_REMINDER              0.9254     0.9424    0.9091
+    UPDATE_REMINDER           0.7852     0.8711    0.7147
+    DELETE_REMINDER           0.9612     0.9706    0.9519
+    SET_PREFERENCES           0.6101     0.8251    0.4840
+
+  Checkpoint : checkpoint-2160  ◄◄◄ BEST ◄◄◄
+--------------------------------------------------------------------------------
+    eval_loss              : 0.057857
+    bce_loss               : 0.057857
+    threshold (auto-tuned) : 0.25
+    f1_macro               : 0.862132
+    f1_micro               : 0.862896
+    f1_weighted            : 0.863517
+    f1_samples             : 0.848998
+    precision_macro        : 0.870277
+    precision_micro        : 0.855704
+    precision_weighted     : 0.866582
+    recall_macro           : 0.863563
+    recall_micro           : 0.870210
+    recall_weighted        : 0.870210
+    hamming_loss           : 0.019606
+    exact_match_ratio      : 0.789062
+    any_correct_ratio      : 0.879607
+    roc_auc_macro          : 0.990471
+    mcc (binary flat)      : 0.852374
+    avg_labels_predicted   : 1.154
+    avg_labels_true        : 1.134
+
+    Class                         F1  Precision    Recall
+    ----------------------  --------  ---------  --------
+    CREATE_EVENT              0.8062     0.7122    0.9287
+    UPDATE_EVENT              0.8102     0.7346    0.9030
+    DELETE_EVENT              0.9383     0.9263    0.9506
+    QUERY_EVENT               0.6907     0.8465    0.5833
+    FIND_FREE_TIME            0.6008     0.5495    0.6627
+    SUGGEST_TIME              0.9945     0.9918    0.9972
+    CHANGE_RECURRENCE         0.9779     0.9627    0.9936
+    CREATE_TASK               0.8884     0.8310    0.9543
+    UPDATE_TASK               0.8956     0.9338    0.8605
+    DELETE_TASK               0.9162     0.9188    0.9135
+    COMPLETE_TASK             0.9159     0.9518    0.8827
+    QUERY_TASK                0.9429     0.9345    0.9515
+    SET_REMINDER              0.9426     0.9757    0.9116
+    UPDATE_REMINDER           0.8309     0.9467    0.7404
+    DELETE_REMINDER           0.9672     0.9899    0.9455
+    SET_PREFERENCES           0.6757     0.7184    0.6378
+
+  Checkpoint : checkpoint-2880
+--------------------------------------------------------------------------------
+    eval_loss              : 0.059210
+    bce_loss               : 0.059210
+    threshold (auto-tuned) : 0.25
+    f1_macro               : 0.860831
+    f1_micro               : 0.862621
+    f1_weighted            : 0.862280
+    f1_samples             : 0.847576
+    precision_macro        : 0.872617
+    precision_micro        : 0.859296
+    precision_weighted     : 0.868688
+    recall_macro           : 0.858965
+    recall_micro           : 0.865972
+    recall_weighted        : 0.865972
+    hamming_loss           : 0.019556
+    exact_match_ratio      : 0.792067
+    any_correct_ratio      : 0.876402
+    roc_auc_macro          : 0.990415
+    mcc (binary flat)      : 0.852101
+    avg_labels_predicted   : 1.143
+    avg_labels_true        : 1.134
+
+    Class                         F1  Precision    Recall
+    ----------------------  --------  ---------  --------
+    CREATE_EVENT              0.8022     0.7048    0.9308
+    UPDATE_EVENT              0.8096     0.7320    0.9057
+    DELETE_EVENT              0.9437     0.9370    0.9506
+    QUERY_EVENT               0.6932     0.8472    0.5865
+    FIND_FREE_TIME            0.6082     0.5780    0.6418
+    SUGGEST_TIME              0.9891     0.9810    0.9972
+    CHANGE_RECURRENCE         0.9779     0.9627    0.9936
+    CREATE_TASK               0.8898     0.8370    0.9498
+    UPDATE_TASK               0.8950     0.9393    0.8547
+    DELETE_TASK               0.9197     0.9320    0.9078
+    COMPLETE_TASK             0.9151     0.9436    0.8883
+    QUERY_TASK                0.9431     0.9320    0.9545
+    SET_REMINDER              0.9410     0.9782    0.9066
+    UPDATE_REMINDER           0.8175     0.9492    0.7179
+    DELETE_REMINDER           0.9672     0.9899    0.9455
+    SET_PREFERENCES           0.6609     0.7180    0.6122
+
+  Checkpoint : final (root)
+--------------------------------------------------------------------------------
+    eval_loss              : 0.059210
+    bce_loss               : 0.059210
+    threshold (auto-tuned) : 0.25
+    f1_macro               : 0.860831
+    f1_micro               : 0.862621
+    f1_weighted            : 0.862280
+    f1_samples             : 0.847576
+    precision_macro        : 0.872617
+    precision_micro        : 0.859296
+    precision_weighted     : 0.868688
+    recall_macro           : 0.858965
+    recall_micro           : 0.865972
+    recall_weighted        : 0.865972
+    hamming_loss           : 0.019556
+    exact_match_ratio      : 0.792067
+    any_correct_ratio      : 0.876402
+    roc_auc_macro          : 0.990415
+    mcc (binary flat)      : 0.852101
+    avg_labels_predicted   : 1.143
+    avg_labels_true        : 1.134
+
+    Class                         F1  Precision    Recall
+    ----------------------  --------  ---------  --------
+    CREATE_EVENT              0.8022     0.7048    0.9308
+    UPDATE_EVENT              0.8096     0.7320    0.9057
+    DELETE_EVENT              0.9437     0.9370    0.9506
+    QUERY_EVENT               0.6932     0.8472    0.5865
+    FIND_FREE_TIME            0.6082     0.5780    0.6418
+    SUGGEST_TIME              0.9891     0.9810    0.9972
+    CHANGE_RECURRENCE         0.9779     0.9627    0.9936
+    CREATE_TASK               0.8898     0.8370    0.9498
+    UPDATE_TASK               0.8950     0.9393    0.8547
+    DELETE_TASK               0.9197     0.9320    0.9078
+    COMPLETE_TASK             0.9151     0.9436    0.8883
+    QUERY_TASK                0.9431     0.9320    0.9545
+    SET_REMINDER              0.9410     0.9782    0.9066
+    UPDATE_REMINDER           0.8175     0.9492    0.7179
+    DELETE_REMINDER           0.9672     0.9899    0.9455
+    SET_PREFERENCES           0.6609     0.7180    0.6122
+
+--------------------------------------------------------------------------------
+  >>> BEST INTENT CHECKPOINT : checkpoint-2160
+      f1_macro        = 0.862132
+      f1_micro        = 0.862896
+      exact_match     = 0.789062
+      roc_auc_macro   = 0.990471
+      hamming_loss    = 0.019606
+      eval_loss       = 0.057857
+--------------------------------------------------------------------------------
+
+================================================================================
+  NER MODEL — CHECKPOINT EVALUATION
+  Model base : ./modernbert_ner_model
+  Holdout    : ./modernbert_data/ner_strict_validation.jsonl
+  Samples    : 7000 sentences  |  27 BIO tags
+================================================================================
+
+  Checkpoint : checkpoint-1329
+--------------------------------------------------------------------------------
+    eval_loss                      : 0.456936
+    token_accuracy                 : 0.901321
+    entity_accuracy (non-O tokens) : 0.930615
+    mcc                            : 0.849742
+
+    --- Token-level (incl. O) ---
+    f1_macro                       : 0.859814
+    f1_micro                       : 0.901321
+    f1_weighted                    : 0.907712
+    f1_macro (entity classes only) : 0.857017
+    precision_macro                : 0.845705
+    precision_micro                : 0.901321
+    precision_weighted             : 0.928361
+    recall_macro                   : 0.902885
+    recall_micro                   : 0.901321
+    recall_weighted                : 0.901321
+
+    --- Entity-level (seqeval, span-exact) ---
+    seqeval_f1_macro               : 0.745045
+    seqeval_f1_micro               : 0.738369
+    seqeval_f1_weighted            : 0.755586
+    seqeval_precision_macro        : 0.693470
+    seqeval_precision_micro        : 0.638634
+    seqeval_recall_macro           : 0.837571
+    seqeval_recall_micro           : 0.875022
+
+    Per-class (token-level):
+    Label                           F1  Precision    Recall
+    ------------------------  --------  ---------  --------
+    O                           0.9325     0.9867    0.8840
+    B-EVENT                     0.7257     0.5812    0.9658
+    I-EVENT                     0.8516     0.7541    0.9781
+    B-TASK                      0.7902     0.8352    0.7498
+    I-TASK                      0.8678     0.8015    0.9460
+    B-PERSON                    0.8259     0.9925    0.7072
+    I-PERSON                    0.9285     0.9916    0.8730
+    B-LOCATION                  0.6416     0.5497    0.7705
+    I-LOCATION                  0.7389     0.6488    0.8581
+    B-DATE_ABSOLUTE             0.9979     1.0000    0.9959
+    I-DATE_ABSOLUTE             1.0000     1.0000    1.0000
+    B-DATE_RELATIVE             0.9385     0.8865    0.9971
+    I-DATE_RELATIVE             0.9957     0.9918    0.9996
+    B-TIME_ABSOLUTE             0.9407     0.8881    1.0000
+    I-TIME_ABSOLUTE             0.9952     0.9905    1.0000
+    B-TIME_RELATIVE             0.8186     0.8982    0.7519
+    I-TIME_RELATIVE             0.8637     0.8444    0.8839
+    B-DURATION                  0.9630     0.9402    0.9869
+    I-DURATION                  0.9309     0.8707    1.0000
+    B-RECURRENCE                0.8778     0.7993    0.9733
+    I-RECURRENCE                0.9459     0.9162    0.9777
+    B-REMINDER_OFFSET           0.9161     0.9965    0.8478
+    I-REMINDER_OFFSET           0.9334     0.9871    0.8853
+    B-PREF_TYPE                 0.5162     0.3696    0.8557
+    I-PREF_TYPE                 0.6786     0.5160    0.9905
+    B-CONDITION                 0.7143     0.9506    0.5721
+    I-CONDITION                 0.8857     0.8472    0.9278
+
+    seqeval entity classification report:
+      precision    recall  f1-score   support
+      
+            CONDITION       0.45      0.56      0.50       437
+        DATE_ABSOLUTE       1.00      1.00      1.00       726
+        DATE_RELATIVE       0.88      1.00      0.94      1386
+             DURATION       0.78      0.98      0.87       685
+                EVENT       0.54      0.92      0.68      3330
+             LOCATION       0.48      0.76      0.59       488
+               PERSON       0.87      0.70      0.78       748
+            PREF_TYPE       0.30      0.85      0.44       409
+           RECURRENCE       0.67      0.82      0.74       225
+      REMINDER_OFFSET       0.84      0.81      0.83       335
+                 TASK       0.55      0.74      0.63      1007
+        TIME_ABSOLUTE       0.88      1.00      0.94       849
+        TIME_RELATIVE       0.76      0.75      0.75       657
+      
+            micro avg       0.64      0.88      0.74     11282
+            macro avg       0.69      0.84      0.75     11282
+         weighted avg       0.68      0.88      0.76     11282
+
+  Checkpoint : checkpoint-2658
+--------------------------------------------------------------------------------
+    eval_loss                      : 0.468032
+    token_accuracy                 : 0.904478
+    entity_accuracy (non-O tokens) : 0.950197
+    mcc                            : 0.856489
+
+    --- Token-level (incl. O) ---
+    f1_macro                       : 0.864830
+    f1_micro                       : 0.904478
+    f1_weighted                    : 0.910561
+    f1_macro (entity classes only) : 0.862274
+    precision_macro                : 0.826283
+    precision_micro                : 0.904478
+    precision_weighted             : 0.929581
+    recall_macro                   : 0.932167
+    recall_micro                   : 0.904478
+    recall_weighted                : 0.904478
+
+    --- Entity-level (seqeval, span-exact) ---
+    seqeval_f1_macro               : 0.754451
+    seqeval_f1_micro               : 0.754233
+    seqeval_f1_weighted            : 0.772512
+    seqeval_precision_macro        : 0.682238
+    seqeval_precision_micro        : 0.649971
+    seqeval_recall_macro           : 0.879077
+    seqeval_recall_micro           : 0.898334
+
+    Per-class (token-level):
+    Label                           F1  Precision    Recall
+    ------------------------  --------  ---------  --------
+    O                           0.9313     0.9921    0.8775
+    B-EVENT                     0.7805     0.6749    0.9252
+    I-EVENT                     0.9029     0.8494    0.9637
+    B-TASK                      0.7596     0.6471    0.9196
+    I-TASK                      0.8641     0.7679    0.9878
+    B-PERSON                    0.8992     0.9041    0.8944
+    I-PERSON                    0.9321     0.8942    0.9734
+    B-LOCATION                  0.5866     0.4736    0.7705
+    I-LOCATION                  0.6947     0.5563    0.9247
+    B-DATE_ABSOLUTE             0.9993     1.0000    0.9986
+    I-DATE_ABSOLUTE             1.0000     1.0000    1.0000
+    B-DATE_RELATIVE             0.9254     0.8628    0.9978
+    I-DATE_RELATIVE             0.9860     0.9727    0.9996
+    B-TIME_ABSOLUTE             0.9465     0.8984    1.0000
+    I-TIME_ABSOLUTE             1.0000     1.0000    1.0000
+    B-TIME_RELATIVE             0.8325     0.9255    0.7565
+    I-TIME_RELATIVE             0.8752     0.9298    0.8267
+    B-DURATION                  0.9285     0.9011    0.9577
+    I-DURATION                  0.8807     0.7868    1.0000
+    B-RECURRENCE                0.8577     0.7903    0.9378
+    I-RECURRENCE                0.9407     0.8903    0.9972
+    B-REMINDER_OFFSET           0.9417     0.9967    0.8925
+    I-REMINDER_OFFSET           0.9545     0.9502    0.9588
+    B-PREF_TYPE                 0.5257     0.3688    0.9144
+    I-PREF_TYPE                 0.6855     0.5275    0.9787
+    B-CONDITION                 0.8176     0.9078    0.7437
+    I-CONDITION                 0.9019     0.8415    0.9718
+
+    seqeval entity classification report:
+      precision    recall  f1-score   support
+      
+            CONDITION       0.52      0.74      0.61       437
+        DATE_ABSOLUTE       1.00      1.00      1.00       726
+        DATE_RELATIVE       0.84      1.00      0.91      1386
+             DURATION       0.66      0.95      0.78       685
+                EVENT       0.63      0.89      0.73      3330
+             LOCATION       0.40      0.77      0.52       488
+               PERSON       0.80      0.89      0.84       748
+            PREF_TYPE       0.30      0.90      0.45       409
+           RECURRENCE       0.66      0.80      0.72       225
+      REMINDER_OFFSET       0.87      0.89      0.88       335
+                 TASK       0.51      0.87      0.65      1007
+        TIME_ABSOLUTE       0.90      1.00      0.95       849
+        TIME_RELATIVE       0.78      0.74      0.76       657
+      
+            micro avg       0.65      0.90      0.75     11282
+            macro avg       0.68      0.88      0.75     11282
+         weighted avg       0.69      0.90      0.77     11282
+
+  Checkpoint : checkpoint-3987  ◄◄◄ BEST ◄◄◄
+--------------------------------------------------------------------------------
+    eval_loss                      : 0.435278
+    token_accuracy                 : 0.912332
+    entity_accuracy (non-O tokens) : 0.942783
+    mcc                            : 0.865598
+
+    --- Token-level (incl. O) ---
+    f1_macro                       : 0.874039
+    f1_micro                       : 0.912332
+    f1_weighted                    : 0.916995
+    f1_macro (entity classes only) : 0.871521
+    precision_macro                : 0.849549
+    precision_micro                : 0.912332
+    precision_weighted             : 0.932424
+    recall_macro                   : 0.919478
+    recall_micro                   : 0.912332
+    recall_weighted                : 0.912332
+
+    --- Entity-level (seqeval, span-exact) ---
+    seqeval_f1_macro               : 0.766565
+    seqeval_f1_micro               : 0.762216
+    seqeval_f1_weighted            : 0.774222
+    seqeval_precision_macro        : 0.707693
+    seqeval_precision_micro        : 0.667466
+    seqeval_recall_macro           : 0.860873
+    seqeval_recall_micro           : 0.888318
+
+    Per-class (token-level):
+    Label                           F1  Precision    Recall
+    ------------------------  --------  ---------  --------
+    O                           0.9395     0.9895    0.8943
+    B-EVENT                     0.7558     0.6422    0.9183
+    I-EVENT                     0.9039     0.8479    0.9679
+    B-TASK                      0.7618     0.6353    0.9513
+    I-TASK                      0.8621     0.7614    0.9934
+    B-PERSON                    0.8804     0.9547    0.8168
+    I-PERSON                    0.9587     0.9755    0.9424
+    B-LOCATION                  0.6359     0.5384    0.7766
+    I-LOCATION                  0.7152     0.6088    0.8667
+    B-DATE_ABSOLUTE             0.9986     0.9986    0.9986
+    I-DATE_ABSOLUTE             1.0000     1.0000    1.0000
+    B-DATE_RELATIVE             0.9093     0.8347    0.9986
+    I-DATE_RELATIVE             0.9893     0.9791    0.9996
+    B-TIME_ABSOLUTE             0.9454     0.8965    1.0000
+    I-TIME_ABSOLUTE             1.0000     1.0000    1.0000
+    B-TIME_RELATIVE             0.7968     0.9495    0.6865
+    I-TIME_RELATIVE             0.8799     0.9189    0.8440
+    B-DURATION                  0.9518     0.9389    0.9650
+    I-DURATION                  0.9434     0.8928    1.0000
+    B-RECURRENCE                0.8625     0.8118    0.9200
+    I-RECURRENCE                0.9368     0.8856    0.9944
+    B-REMINDER_OFFSET           0.9354     0.9900    0.8866
+    I-REMINDER_OFFSET           0.9480     0.9567    0.9394
+    B-PREF_TYPE                 0.5997     0.4667    0.8386
+    I-PREF_TYPE                 0.7675     0.6384    0.9621
+    B-CONDITION                 0.7995     0.9525    0.6888
+    I-CONDITION                 0.9219     0.8736    0.9759
+
+    seqeval entity classification report:
+      precision    recall  f1-score   support
+      
+            CONDITION       0.53      0.69      0.60       437
+        DATE_ABSOLUTE       1.00      1.00      1.00       726
+        DATE_RELATIVE       0.83      1.00      0.90      1386
+             DURATION       0.79      0.96      0.87       685
+                EVENT       0.60      0.89      0.72      3330
+             LOCATION       0.47      0.76      0.58       488
+               PERSON       0.87      0.81      0.84       748
+            PREF_TYPE       0.39      0.82      0.53       409
+           RECURRENCE       0.67      0.78      0.72       225
+      REMINDER_OFFSET       0.89      0.89      0.89       335
+                 TASK       0.50      0.91      0.65      1007
+        TIME_ABSOLUTE       0.90      1.00      0.95       849
+        TIME_RELATIVE       0.75      0.68      0.72       657
+      
+            micro avg       0.67      0.89      0.76     11282
+            macro avg       0.71      0.86      0.77     11282
+         weighted avg       0.70      0.89      0.77     11282
+
+  Checkpoint : checkpoint-5316
+--------------------------------------------------------------------------------
+    eval_loss                      : 0.463799
+    token_accuracy                 : 0.907799
+    entity_accuracy (non-O tokens) : 0.944879
+    mcc                            : 0.860204
+
+    --- Token-level (incl. O) ---
+    f1_macro                       : 0.867804
+    f1_micro                       : 0.907799
+    f1_weighted                    : 0.913567
+    f1_macro (entity classes only) : 0.865184
+    precision_macro                : 0.834589
+    precision_micro                : 0.907799
+    precision_weighted             : 0.931238
+    recall_macro                   : 0.926268
+    recall_micro                   : 0.907799
+    recall_weighted                : 0.907799
+
+    --- Entity-level (seqeval, span-exact) ---
+    seqeval_f1_macro               : 0.761540
+    seqeval_f1_micro               : 0.759660
+    seqeval_f1_weighted            : 0.776075
+    seqeval_precision_macro        : 0.695908
+    seqeval_precision_micro        : 0.661884
+    seqeval_recall_macro           : 0.871994
+    seqeval_recall_micro           : 0.891331
+
+    Per-class (token-level):
+    Label                           F1  Precision    Recall
+    ------------------------  --------  ---------  --------
+    O                           0.9359     0.9919    0.8859
+    B-EVENT                     0.7759     0.6767    0.9090
+    I-EVENT                     0.9118     0.8760    0.9507
+    B-TASK                      0.7568     0.6301    0.9474
+    I-TASK                      0.8221     0.7000    0.9959
+    B-PERSON                    0.8832     0.9383    0.8342
+    I-PERSON                    0.9612     0.9713    0.9513
+    B-LOCATION                  0.6301     0.5301    0.7766
+    I-LOCATION                  0.6956     0.5828    0.8624
+    B-DATE_ABSOLUTE             0.9986     0.9986    0.9986
+    I-DATE_ABSOLUTE             1.0000     1.0000    1.0000
+    B-DATE_RELATIVE             0.9126     0.8407    0.9978
+    I-DATE_RELATIVE             0.9880     0.9766    0.9996
+    B-TIME_ABSOLUTE             0.9497     0.9042    1.0000
+    I-TIME_ABSOLUTE             1.0000     1.0000    1.0000
+    B-TIME_RELATIVE             0.8242     0.9211    0.7458
+    I-TIME_RELATIVE             0.8817     0.9128    0.8527
+    B-DURATION                  0.9393     0.9299    0.9489
+    I-DURATION                  0.9275     0.8648    1.0000
+    B-RECURRENCE                0.8462     0.7770    0.9289
+    I-RECURRENCE                0.9370     0.8837    0.9972
+    B-REMINDER_OFFSET           0.9371     0.9900    0.8896
+    I-REMINDER_OFFSET           0.9538     0.9501    0.9575
+    B-PREF_TYPE                 0.5260     0.3778    0.8655
+    I-PREF_TYPE                 0.7084     0.5551    0.9787
+    B-CONDITION                 0.8329     0.9320    0.7529
+    I-CONDITION                 0.8951     0.8222    0.9822
+
+    seqeval entity classification report:
+      precision    recall  f1-score   support
+      
+            CONDITION       0.51      0.75      0.61       437
+        DATE_ABSOLUTE       1.00      1.00      1.00       726
+        DATE_RELATIVE       0.83      1.00      0.90      1386
+             DURATION       0.76      0.95      0.84       685
+                EVENT       0.63      0.88      0.73      3330
+             LOCATION       0.46      0.76      0.57       488
+               PERSON       0.85      0.83      0.84       748
+            PREF_TYPE       0.31      0.85      0.46       409
+           RECURRENCE       0.66      0.80      0.72       225
+      REMINDER_OFFSET       0.88      0.89      0.89       335
+                 TASK       0.49      0.90      0.63      1007
+        TIME_ABSOLUTE       0.90      1.00      0.95       849
+        TIME_RELATIVE       0.76      0.73      0.74       657
+      
+            micro avg       0.66      0.89      0.76     11282
+            macro avg       0.70      0.87      0.76     11282
+         weighted avg       0.70      0.89      0.78     11282
+
+  Checkpoint : final (root)
+--------------------------------------------------------------------------------
+    eval_loss                      : 0.463799
+    token_accuracy                 : 0.907799
+    entity_accuracy (non-O tokens) : 0.944879
+    mcc                            : 0.860204
+
+    --- Token-level (incl. O) ---
+    f1_macro                       : 0.867804
+    f1_micro                       : 0.907799
+    f1_weighted                    : 0.913567
+    f1_macro (entity classes only) : 0.865184
+    precision_macro                : 0.834589
+    precision_micro                : 0.907799
+    precision_weighted             : 0.931238
+    recall_macro                   : 0.926268
+    recall_micro                   : 0.907799
+    recall_weighted                : 0.907799
+
+    --- Entity-level (seqeval, span-exact) ---
+    seqeval_f1_macro               : 0.761540
+    seqeval_f1_micro               : 0.759660
+    seqeval_f1_weighted            : 0.776075
+    seqeval_precision_macro        : 0.695908
+    seqeval_precision_micro        : 0.661884
+    seqeval_recall_macro           : 0.871994
+    seqeval_recall_micro           : 0.891331
+
+    Per-class (token-level):
+    Label                           F1  Precision    Recall
+    ------------------------  --------  ---------  --------
+    O                           0.9359     0.9919    0.8859
+    B-EVENT                     0.7759     0.6767    0.9090
+    I-EVENT                     0.9118     0.8760    0.9507
+    B-TASK                      0.7568     0.6301    0.9474
+    I-TASK                      0.8221     0.7000    0.9959
+    B-PERSON                    0.8832     0.9383    0.8342
+    I-PERSON                    0.9612     0.9713    0.9513
+    B-LOCATION                  0.6301     0.5301    0.7766
+    I-LOCATION                  0.6956     0.5828    0.8624
+    B-DATE_ABSOLUTE             0.9986     0.9986    0.9986
+    I-DATE_ABSOLUTE             1.0000     1.0000    1.0000
+    B-DATE_RELATIVE             0.9126     0.8407    0.9978
+    I-DATE_RELATIVE             0.9880     0.9766    0.9996
+    B-TIME_ABSOLUTE             0.9497     0.9042    1.0000
+    I-TIME_ABSOLUTE             1.0000     1.0000    1.0000
+    B-TIME_RELATIVE             0.8242     0.9211    0.7458
+    I-TIME_RELATIVE             0.8817     0.9128    0.8527
+    B-DURATION                  0.9393     0.9299    0.9489
+    I-DURATION                  0.9275     0.8648    1.0000
+    B-RECURRENCE                0.8462     0.7770    0.9289
+    I-RECURRENCE                0.9370     0.8837    0.9972
+    B-REMINDER_OFFSET           0.9371     0.9900    0.8896
+    I-REMINDER_OFFSET           0.9538     0.9501    0.9575
+    B-PREF_TYPE                 0.5260     0.3778    0.8655
+    I-PREF_TYPE                 0.7084     0.5551    0.9787
+    B-CONDITION                 0.8329     0.9320    0.7529
+    I-CONDITION                 0.8951     0.8222    0.9822
+
+    seqeval entity classification report:
+      precision    recall  f1-score   support
+      
+            CONDITION       0.51      0.75      0.61       437
+        DATE_ABSOLUTE       1.00      1.00      1.00       726
+        DATE_RELATIVE       0.83      1.00      0.90      1386
+             DURATION       0.76      0.95      0.84       685
+                EVENT       0.63      0.88      0.73      3330
+             LOCATION       0.46      0.76      0.57       488
+               PERSON       0.85      0.83      0.84       748
+            PREF_TYPE       0.31      0.85      0.46       409
+           RECURRENCE       0.66      0.80      0.72       225
+      REMINDER_OFFSET       0.88      0.89      0.89       335
+                 TASK       0.49      0.90      0.63      1007
+        TIME_ABSOLUTE       0.90      1.00      0.95       849
+        TIME_RELATIVE       0.76      0.73      0.74       657
+      
+            micro avg       0.66      0.89      0.76     11282
+            macro avg       0.70      0.87      0.76     11282
+         weighted avg       0.70      0.89      0.78     11282
+
+--------------------------------------------------------------------------------
+  >>> BEST NER CHECKPOINT : checkpoint-3987
+      seqeval_f1_macro   = 0.766565
+      seqeval_f1_micro   = 0.762216
+      f1_macro (token)   = 0.874039
+      entity_accuracy    = 0.942783
+      token_accuracy     = 0.912332
+      eval_loss          = 0.435278
+--------------------------------------------------------------------------------
+
+================================================================================
+  OVERALL SUMMARY
+================================================================================
+
+  INTENT MODEL
+    Architecture    : ModernBertForSequenceClassification
+    Task            : Multi-label intent classification (16 classes)
+    Holdout size    : 4992 utterances
+    Best checkpoint : checkpoint-2160
+    eval_loss       : 0.057857
+    bce_loss        : 0.057857
+    threshold       : 0.25
+    f1_macro        : 0.862132
+    f1_micro        : 0.862896
+    f1_weighted     : 0.863517
+    f1_samples      : 0.848998
+    roc_auc_macro   : 0.990471
+    exact_match     : 0.789062
+    hamming_loss    : 0.019606
+    mcc             : 0.852374
+
+  NER MODEL
+    Architecture    : ModernBertForTokenClassification
+    Task            : Named-entity / slot-filling (27 BIO tags, 13 entity types)
+    Holdout size    : 7000 sentences
+    Best checkpoint : checkpoint-3987
+    eval_loss                      : 0.435278
+    seqeval_f1_macro (entity)      : 0.766565
+    seqeval_f1_micro (entity)      : 0.762216
+    seqeval_precision_macro        : 0.707693
+    seqeval_recall_macro           : 0.860873
+    f1_macro (token)               : 0.874039
+    f1_macro entity-classes only   : 0.871521
+    token_accuracy                 : 0.912332
+    entity_accuracy (non-O)        : 0.942783
+    mcc                            : 0.865598
+
+================================================================================
+  MODEL NOTES
+================================================================================
+
+  INTENT MODEL  (ModernBertForSequenceClassification)
+  ─────────────────────────────────────────────────────────────────────────────
+  Trained on a multi-label task: a single utterance can carry more than one
+  intent (e.g. DELETE_EVENT + FIND_FREE_TIME for a rescheduling request).
+  Loss function: binary cross-entropy (sigmoid outputs per class).
+
+  The inference threshold was selected by sweeping [0.25, 0.75] in 0.05 steps
+  directly on the strict holdout and picking the threshold that maximises
+  f1_macro.  This makes the threshold result optimistic by a small margin.
+
+  Metrics to prioritise:
+    f1_macro           — treats each of the 16 classes equally; best indicator
+                         of coverage across rare intents.
+    exact_match_ratio  — strictest signal; the entire label vector must match.
+    roc_auc_macro      — threshold-free; rewards well-calibrated probabilities.
+    hamming_loss       — fraction of (sample, label) pairs that are wrong;
+                         lower is better.
+    f1_samples         — averaged per utterance; captures multi-label overlap.
+
+  NER MODEL  (ModernBertForTokenClassification)
+  ─────────────────────────────────────────────────────────────────────────────
+  Trained with BIO tagging over 13 entity types (26 non-O tags + O).
+  Entity types span temporal expressions (DATE, TIME, DURATION, RECURRENCE,
+  REMINDER_OFFSET), referent slots (TASK, EVENT, PERSON, LOCATION), and
+  assistant-specific types (PREF_TYPE, CONDITION).
+
+  Metrics to prioritise:
+    seqeval_f1_macro   — gold standard for NER; an entity span must be
+                         predicted with both correct boundaries AND correct type
+                         to count as a true positive.
+    seqeval_f1_micro   — macro across entity occurrences; dominated by frequent
+                         types but reflects real-world distribution.
+    entity_accuracy    — per-token accuracy on non-O tokens; strips out the
+                         dominant O-class to avoid inflated accuracy numbers.
+    f1_macro_entity_only — token-level macro F1 excluding O; useful for
+                         spotting which BIO classes the model struggles with.
+    eval_loss          — cross-entropy over all tokens; lower means better
+                         probability calibration at the token level.
+
+================================================================================

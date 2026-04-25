@@ -1,5 +1,8 @@
 """
-Preferences routes: parse (NLU), list, delete.
+Preferences routes: parse (NLU, async-queued), list, delete, job status.
+
+POST /api/preferences/parse   → enqueues a job, returns job_id immediately.
+GET  /api/preferences/job/{job_id} → poll for job completion / result.
 """
 from typing import Optional, List, Dict, Any
 
@@ -8,6 +11,7 @@ from pydantic import BaseModel
 
 import dependencies as deps
 from dependencies import verify_firebase_token
+from routers import pref_queue
 
 router = APIRouter()
 
@@ -35,31 +39,41 @@ async def parse_preferences(
     req: ParsePreferencesRequest,
     _token=Depends(verify_firebase_token),
 ):
-    try:
-        result = await deps.nlu_engine.process(req.raw_text, req.user_id, req.user_timezone)
-        intent = result.get("intent")
-        entities = result.get("entities", {})
-        raw_preferences = entities.get("preferences", [])
+    """
+    Enqueue a preference-parsing job and return a job_id immediately.
+    The heavy Gemini call happens in the background worker, which retries
+    automatically on resource-exhausted (429) errors.
+    """
+    job_id = pref_queue.enqueue_job(req.raw_text, req.user_id, req.user_timezone or "UTC")
+    return {"status": "queued", "job_id": job_id}
 
-        if intent != "SET_PREFERENCES" or not raw_preferences:
-            return {
-                "status": "no_preference",
-                "message": "No preferences detected in input.",
-            }
 
-        prefs_ref = (
-            deps.db.collection("users").document(req.user_id).collection("preferences")
-        )
-        saved = []
-        for pref in raw_preferences:
-            new_ref = prefs_ref.document()
-            new_ref.set(pref)
-            saved.append({"id": new_ref.id, **pref})
+@router.get("/api/preferences/job/{job_id}")
+async def get_preference_job(
+    job_id: str,
+    _token=Depends(verify_firebase_token),
+):
+    """
+    Poll for the result of a queued preference-parsing job.
 
-        return {"status": "success", "saved_preferences": saved}
-    except Exception as e:
-        print(f"Error parsing preferences: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    Possible `status` values:
+    - "queued"      – waiting in the queue
+    - "processing"  – currently being handled by the worker
+    - "done"        – completed; `result` contains the saved preferences
+    - "failed"      – all retries exhausted; `error` describes the cause
+    """
+    job = pref_queue.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "result": job.get("result"),
+        "error": job.get("error"),
+        "created_at": job.get("created_at"),
+        "updated_at": job.get("updated_at"),
+    }
 
 
 @router.get("/api/preferences/list")

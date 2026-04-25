@@ -58,4 +58,5 @@ export interface CalendarEvent {
   completed_at?: string | null;
   debt_applied?: boolean;
   is_perishable?: boolean;
+  is_ghost?: boolean;
 }

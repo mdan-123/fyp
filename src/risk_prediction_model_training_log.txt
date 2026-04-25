@@ -1,0 +1,55 @@
+=== Procrastination Risk Model — Training Log ===
+
+--- Cross-Validation (AUC) ---
+  Folds:  [0.752, 0.775, 0.74, 0.779, 0.768]
+  Mean:   0.7627
+  Std:    0.0147
+
+--- Best Hyperparameters ---
+  n_estimators: 200
+  min_samples_split: 5
+  min_samples_leaf: 15
+  max_features: sqrt
+  max_depth: None
+  bootstrap: True
+
+--- Optimal Threshold ---
+  Threshold: 0.3659
+
+--- Evaluation (Optimal Threshold) ---
+              precision    recall  f1-score   support
+
+   Completed       0.83      0.70      0.76       679
+      Missed       0.54      0.71      0.61       337
+
+    accuracy                           0.70      1016
+   macro avg       0.68      0.70      0.69      1016
+weighted avg       0.73      0.70      0.71      1016
+
+ROC-AUC Score: 0.7653
+
+--- Confusion Matrix ---
+  True Negatives  (correctly completed): 473
+  False Positives (wrongly flagged):     206
+  False Negatives (missed warnings):     97
+  True Positives  (correctly flagged):   240
+
+--- Brier Score Calibration ---
+  brier_calibrated: 0.1785
+  brier_uncalibrated: 0.1972
+  brier_baseline: 0.2217
+  baseline_improvement_pct: 19.46
+
+--- Feature Importance ---
+  global_time_debt          0.1940
+  snooze_count              0.1593
+  priority                  0.1101
+  snooze_rate               0.1076
+  days_since_created        0.0982
+  hour_cos                  0.0951
+  day_sin                   0.0609
+  hour_sin                  0.0464
+  tasks_due_same_day        0.0442
+  estimated_duration        0.0365
+  day_cos                   0.0256
+  energy_level              0.0220

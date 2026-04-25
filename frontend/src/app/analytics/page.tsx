@@ -58,6 +58,7 @@ interface CategoryStat {
 }
 
 interface DashboardData {
+  is_cold_start: boolean;
   core_ledgers: { active_debt_mins: number; sunk_debt_mins: number; time_refunded_mins: number };
   procrastination_profile: any[];
   risk_forecast: { average_risk_score: number; danger_zone: any[] };
@@ -563,6 +564,22 @@ export default function AnalyticsPage() {
         </div>
 
         <div className="relative z-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto pt-6">
+          {data.is_cold_start && (
+            <div
+              className="mb-6 flex items-start gap-3 rounded-2xl px-5 py-4 card-reveal"
+              style={{ background: "var(--color-accent-glow)", border: "1px solid var(--color-border-accent)" }}
+            >
+              <svg className="w-5 h-5 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent-primary)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <div>
+                <p className="text-sm font-bold" style={{ color: "var(--color-accent-primary)" }}>Stats are warming up</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>Your analytics will become more insightful as you complete tasks and events over the coming days.</p>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <StatCard label="Active Debt" value={formatTime(core_ledgers.active_debt_mins)} sub="Unscheduled rollover tasks" accent="var(--color-accent-primary)" delay={0.1} />
             <StatCard label="Sunk Debt" value={formatTime(core_ledgers.sunk_debt_mins)} sub="Permanently missed routines" accent="var(--color-danger)" delay={0.15} />

@@ -357,6 +357,25 @@ async def update_event(
                         )
             debt_applied = False
 
+        # Retroactive completion: marking a missed event as completed without rescheduling
+        if (
+            comp_status == "completed"
+            and existing_data.get("completion_status") == "missed"
+            and snooze_increment == 0
+        ):
+            if existing_data.get("debt_applied"):
+                retro_start = parse_iso(existing_data.get("start"))
+                retro_end = parse_iso(existing_data.get("end"))
+                if retro_start and retro_end:
+                    retro_mins = int((retro_end - retro_start).total_seconds() / 60)
+                    if retro_mins > 0:
+                        debt_field = "sunk_time_debt" if is_perish else "total_time_debt"
+                        deps.db.collection("users").document(payload.user_id).update(
+                            {debt_field: fs.Increment(-retro_mins)}
+                        )
+                        print(f"💰 Refunded {retro_mins} mins via retroactive completion")
+            debt_applied = False
+
         if comp_status == "completed" and existing_data.get("completion_status") != "completed":
             completed_at = dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         elif comp_status != "completed":
@@ -711,11 +730,19 @@ async def preview_optimisation(
     user_id = request.user_id
     target_date_str = request.target_date
 
+    user_doc_sched = deps.db.collection("users").document(user_id).get()
+    user_settings_sched = user_doc_sched.to_dict() if user_doc_sched.exists else {}
+    sched_window_days = int(user_settings_sched.get("optimisation_window_days", 7))
+    optimise_weekends = bool(user_settings_sched.get("optimise_weekends", False))
+    routines_on_weekends = bool(user_settings_sched.get("routines_on_weekends", False))
+    sched_start_hour = int(user_settings_sched.get("scheduling_start_hour", 8))
+    sched_end_hour = int(user_settings_sched.get("scheduling_end_hour", 22))
+
     try:
         clean_date_str = target_date_str[:10]
         target_date = dt.datetime.fromisoformat(clean_date_str).date()
         start_of_window = target_date
-        end_of_window = start_of_window + dt.timedelta(days=6)
+        end_of_window = start_of_window + dt.timedelta(days=sched_window_days - 1)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
@@ -731,9 +758,13 @@ async def preview_optimisation(
             event_data["id"] = doc.id
             existing_events.append(event_data)
 
-        original_hash = _hash_event_list(existing_events)
+        original_hash = _hash_event_list([e for e in existing_events if not e.get("is_ghost")])
         calendar_optimiser = Optimiser(
-            existing_events, preferences, user_tz_string=str(user_tz)
+            existing_events, preferences, user_tz_string=str(user_tz),
+            skip_weekends=not optimise_weekends,
+            routines_on_weekends=routines_on_weekends,
+            scheduling_start_hour=sched_start_hour,
+            scheduling_end_hour=sched_end_hour,
         )
         ghost_events = calendar_optimiser.inject_routines(start_of_window, end_of_window)
         preview_events = []
@@ -794,6 +825,12 @@ async def preview_optimisation(
                 dummy_locked["end"] = event["proposed_end"]
                 dummy_locked["is_locked"] = True
                 calendar_optimiser.existing_events.append(dummy_locked)
+            else:
+                # No slot found — re-add event at its original time so later
+                # events still respect this slot and don't overlap with it.
+                original_locked = dict(event)
+                original_locked["is_locked"] = True
+                calendar_optimiser.existing_events.append(original_locked)
 
             preview_events.append(event)
 
@@ -831,6 +868,10 @@ async def commit_optimisation(
             deps.db.collection("users").document(user_id).collection("raw_events")
         )
         batch = deps.db.batch()
+
+        # Delete any stale ghost events left from previous uncommitted previews
+        for ghost_doc in events_ref.where("is_ghost", "==", True).stream():
+            batch.delete(ghost_doc.reference)
 
         for event in proposed_events:
             doc_id = event.pop("_id", None) or event.get("id")
@@ -926,7 +967,23 @@ async def delete_event_endpoint(
         if not doc_snap.exists:
             raise HTTPException(status_code=404, detail="Event not found")
 
-        linked_task_id = doc_snap.to_dict().get("linked_task_id")
+        event_data = doc_snap.to_dict()
+        linked_task_id = event_data.get("linked_task_id")
+
+        # Refund debt if this missed event had debt applied
+        if event_data.get("completion_status") == "missed" and event_data.get("debt_applied"):
+            ev_start = safe_parse_dt(event_data.get("start"))
+            ev_end = safe_parse_dt(event_data.get("end"))
+            if ev_start and ev_end:
+                duration = int((ev_end - ev_start).total_seconds() / 60)
+                capped = min(max(0, duration), 120)
+                if capped > 0:
+                    debt_field = "sunk_time_debt" if event_data.get("is_perishable") else "total_time_debt"
+                    deps.db.collection("users").document(req.user_id).update(
+                        {debt_field: fs.Increment(-capped)}
+                    )
+                    print(f"💰 Refunded {capped} mins on event deletion")
+
         doc_ref.delete()
 
         if linked_task_id:
@@ -1054,10 +1111,20 @@ async def preview_reschedule_debt(
                     "original_events": existing_events,
                 }
 
+        user_doc_sched = deps.db.collection("users").document(user_id).get()
+        user_settings_sched = user_doc_sched.to_dict() if user_doc_sched.exists else {}
+        sched_window_days = int(user_settings_sched.get("optimisation_window_days", 7))
+        schedule_on_weekends = bool(user_settings_sched.get("schedule_on_weekends", False))
+        sched_start_hour = int(user_settings_sched.get("scheduling_start_hour", 8))
+        sched_end_hour = int(user_settings_sched.get("scheduling_end_hour", 22))
+
         scheduler = DebtRescheduler(
-            existing_events, preferences, user_tz_string=str(user_tz)
+            existing_events, preferences, user_tz_string=str(user_tz),
+            skip_weekends=not schedule_on_weekends,
+            scheduling_start_hour=sched_start_hour,
+            scheduling_end_hour=sched_end_hour,
         )
-        horizon_end = target_date + dt.timedelta(days=14)
+        horizon_end = target_date + dt.timedelta(days=sched_window_days)
         ghosts = scheduler.schedule_debt(target_date, horizon_end, reschedule_queue)
 
         return {
