@@ -114,6 +114,13 @@ PROJECT/
 │   │   ├── places.py
 │   │   ├── preferences.py
 │   │   └── ...
+│   ├── ai/                          # Model training & dataset scripts
+│   │   ├── modernbert-intent.py     # Intent model definition
+│   │   ├── modernbert-intenttrain.py  # Intent model training script
+│   │   ├── modernbert-intentval.py  # Intent model validation script
+│   │   ├── modernbert-ner.py        # NER model definition
+│   │   ├── modernbert-nertrain.py   # NER model training script
+│   │   └── modernbert-nerval.py     # NER model validation script
 │   ├── modernbert_intent_modelv2/   # Fine-tuned intent classification model
 │   ├── modernbert_ner_model/        # Fine-tuned NER model
 │   └── firebase-service-account.json  # ⚠ Not in repo
