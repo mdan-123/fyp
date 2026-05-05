@@ -25,6 +25,10 @@ An intelligent task scheduling and productivity application that combines natura
 
 ## Getting Started
 
+use the files in the ai folder to create the dataset for the
+modernbert models and then train. for the risk model only need to run the
+riskai code.
+
 ### Prerequisites
 
 - Python 3.11+
@@ -119,6 +123,7 @@ PROJECT/
 │   │   ├── preferences.py
 │   │   └── ...
 │   ├── ai/                          # Model training & dataset scripts
+|   |   |──riskaitrain.py # RF model training script
 │   │   ├── modernbert-intent.py     # Intent model definition
 │   │   ├── modernbert-intenttrain.py  # Intent model training script
 │   │   ├── modernbert-intentval.py  # Intent model validation script
