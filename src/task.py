@@ -27,7 +27,7 @@ class BaseScheduler:
             print(f"⚠️ Invalid timezone '{user_tz_string}', falling back to UTC.")
             self.user_tz = zoneinfo.ZoneInfo("UTC")
 
-        # Inject a default soft lunch window if the user hasn't defined one
+
         has_meal_window = any(p.get("category") == "MEAL" and p.get("type") == "WINDOW" for p in self.preferences)
         if not has_meal_window:
             self.preferences.append({
@@ -470,6 +470,22 @@ class DebtRescheduler(BaseScheduler):
 
     def schedule_debt(self, start_date: datetime.date, end_date: datetime.date, debt_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         print(f"\n[DebtRescheduler] 🧠 Booting up. Attempting to fill gaps with {len(debt_items)} reclaimed items...")
+        print(f"[DebtRescheduler]    Rescheduling window: {start_date} -> {end_date}")
+        print(f"[DebtRescheduler]    Existing calendar events passed in: {len(self.existing_events)}")
+        for ev in self.existing_events:
+            ev_start = ev.get("start", "?")
+            ev_end = ev.get("end", "?")
+            ev_title = ev.get("title", "Untitled")
+            ev_type = "ghost" if ev.get("is_ghost") else ("locked" if ev.get("is_locked") else "unlocked")
+            print(f"[DebtRescheduler]      • [{ev_type}] '{ev_title}' | {ev_start} -> {ev_end}")
+
+        tasks_in  = [d for d in debt_items if d.get("original_type") == "task"]
+        events_in = [d for d in debt_items if d.get("original_type") == "event"]
+        other_in  = [d for d in debt_items if d.get("original_type") not in ("task", "event")]
+        print(f"[DebtRescheduler]    Debt breakdown: {len(tasks_in)} task(s), {len(events_in)} event(s), {len(other_in)} other")
+        for item in debt_items:
+            print(f"[DebtRescheduler]      → [{item.get('original_type','?')}] '{item.get('title','Untitled')}' | duration={item.get('duration','?')}min | priority={item.get('priority',3)}")
+        print()
         ghost_events = []
 
         # Cap the search window at 14 days to avoid unbounded scans

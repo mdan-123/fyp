@@ -1030,9 +1030,7 @@ async def preview_reschedule_debt(
             if not event.get("parent_task_id"):
                 es = parse_iso(event.get("start"))
                 ee = parse_iso(event.get("end"))
-                duration = min(
-                    max(0, int((ee - es).total_seconds() / 60) if es and ee else 60), 120
-                )
+                duration = max(0, int((ee - es).total_seconds() / 60) if es and ee else 60)
                 reschedule_queue.append(
                     {
                         "id": doc.id,
@@ -1060,14 +1058,14 @@ async def preview_reschedule_debt(
                     ee = parse_iso(edata.get("end"))
                     if es and ee:
                         allocated_mins += int((ee - es).total_seconds() / 60)
-            rem_dur = min(max(0, base_dur - allocated_mins), 120)
+            rem_dur = max(0, base_dur - allocated_mins)
             if rem_dur > 0:
                 reschedule_queue.append(
                     {
                         "id": doc.id,
                         "title": task.get("title", "Missed Task"),
                         "duration": rem_dur,
-                        "priority": 1,
+                        "priority": task.get("priority", 3),
                         "energy_level": task.get("energy_level", "medium"),
                         "original_type": "task",
                     }
