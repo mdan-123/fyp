@@ -374,7 +374,7 @@ class MultiSignalRouter:
                     results.append({"intent": intent, "result": result, "status": "success", "source": source})
 
                 except AmbiguityError as e:
-                    # Multiple DB matches found — send candidates to frontend for selection.
+                    # Multiple DB matches found - send candidates to frontend for selection.
                     # entity_key tells the frontend which entity array to replace when
                     # the user picks one, so it can re-submit via intent_override + entity_overrides.
                     results.append({

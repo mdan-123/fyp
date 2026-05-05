@@ -62,19 +62,17 @@ class IntentExecutionEngine:
 
 
     def _get_user_tz_str(self, user_id: str) -> str:
-        """Helper to fetch the user's dynamic timezone from Firestore."""
         try:
             doc = self.db.collection("users").document(user_id).get()
             if doc.exists:
                 tz = doc.to_dict().get("timezone", "UTC")
-                zoneinfo.ZoneInfo(tz) # Validate it
+                zoneinfo.ZoneInfo(tz)  # validate
                 return tz
         except Exception:
             pass
         return "UTC"
 
     def _format_time(self, iso_string: str, user_timezone: str = "UTC") -> str:
-        """Formats ISO timestamps into readable strings in the local timezone."""
         if not iso_string:
             return "the requested time"
         try:
@@ -88,20 +86,12 @@ class IntentExecutionEngine:
 
 
     def _resolve_with_aliases(self, title_query: str, aliases: dict) -> list[str]:
-        """
-        Returns a list of candidate strings to try for title resolution.
-        Always includes the original query. If an alias maps to a different
-        string, that expansion is also included so the resolver tries both.
-        """
         candidates = [title_query]
         q_lower = title_query.lower()
 
-        # Direct alias lookup — "fyp" → "final year project"
         if q_lower in aliases:
             candidates.append(aliases[q_lower])
 
-        # Reverse lookup — if the stored title contains an alias value,
-        # the user might have typed the short form anywhere in the query
         for alias, full_form in aliases.items():
             if alias in q_lower and full_form not in candidates:
                 expanded = re.sub(
@@ -115,23 +105,10 @@ class IntentExecutionEngine:
 
         return candidates
     
-    # ------------------------------------------------------------------ #
-    #  RESOLUTION HELPER                                                   #
-    #  Replaces _check_ambiguity — works with full event/task dicts so    #
-    #  the AmbiguityError carries enough metadata for the frontend to     #
-    #  display date, time, and location alongside the title.              #
-    # ------------------------------------------------------------------ #
     def _resolve_or_raise(self, matches: list, query: str, entity_key: str):
-        """
-        Takes a list of matched item dictionaries.
-        - 0 matches → returns None
-        - 1 match   → returns the full item dict
-        - 2+ matches → raises AmbiguityError with enriched candidate dicts
-        """
         if not matches:
             return None
 
-        # Deduplicate based on document ID to ensure we don't present the exact same document twice
         unique_matches = {m.get("_doc_id"): m for m in matches if m.get("_doc_id")}
         deduped = list(unique_matches.values())
         
@@ -141,8 +118,6 @@ class IntentExecutionEngine:
         if len(deduped) == 1:
             return deduped[0]
 
-        # Multiple matches — enrich each candidate with display metadata
-        # so the frontend can show date/time/location, not just the title.
         enriched = []
         for item in deduped:
             enriched.append({
@@ -165,10 +140,6 @@ class IntentExecutionEngine:
 
 
     def _fetch_event_by_id(self, user_id: str, doc_id: str) -> dict | None:
-        """
-        Fetches a single event directly by Firestore document ID.
-        Used after ambiguity resolution so we never trigger title search again.
-        """
         try:
             doc = (
                 self.db.collection("users")
@@ -187,7 +158,6 @@ class IntentExecutionEngine:
 
 
     def _fetch_task_by_id(self, user_id: str, doc_id: str) -> dict | None:
-        """Same as above but for tasks."""
         try:
             doc = (
                 self.db.collection("users")
@@ -206,9 +176,6 @@ class IntentExecutionEngine:
 
 
 
-    # ------------------------------------------------------------------ #
-    #  AMBIGUITY CHECKER & RESOLUTION                                    #
-    # ------------------------------------------------------------------ #
     def _check_ambiguity(self, matches: list, title_query: str, entity_key: str = "events"):
         if len(matches) > 1:
             raise AmbiguityError(
@@ -337,14 +304,13 @@ class IntentExecutionEngine:
             if query != title_query:
                 print(f"[TitleResolver] Trying alias expansion: '{query}'")
 
-            # Stage 1 — Substring
-            # THE FIX: Directly extract the event dictionary instead of just the string
+            # stage 1: substring match
             stage1 = [e for e in all_events if query.lower() in e.get("title", "").lower()]
             resolved = self._resolve_or_raise(stage1, query, "events")
             if resolved:
                 return resolved
 
-            # Stage 2 — Fuzzy
+            # stage 2: fuzzy
             fuzzy_titles = self._fuzzy_match_title(query, all_titles)
             fuzzy_events = [e for e in all_events if e.get("title", "") in fuzzy_titles]
             resolved = self._resolve_or_raise(fuzzy_events, query, "events")
@@ -352,7 +318,7 @@ class IntentExecutionEngine:
                 print(f"[TitleResolver] Fuzzy: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
-            # Stage 3 — WordNet
+            # stage 3: wordnet synonyms
             wordnet_titles = self._wordnet_match_title(query, all_titles)
             wordnet_events = [e for e in all_events if e.get("title", "") in wordnet_titles]
             resolved = self._resolve_or_raise(wordnet_events, query, "events")
@@ -360,7 +326,7 @@ class IntentExecutionEngine:
                 print(f"[TitleResolver] WordNet: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
-            # Stage 4 — Embedding
+            # stage 4: sentence embedding similarity
             embedding_titles = self._embedding_match_title(query, all_titles)
             embedding_events = [e for e in all_events if e.get("title", "") in embedding_titles]
             resolved = self._resolve_or_raise(embedding_events, query, "events")
@@ -368,7 +334,7 @@ class IntentExecutionEngine:
                 print(f"[TitleResolver] Embedding: '{query}' → '{resolved.get('title')}'")
                 return resolved
 
-        # Stage 5 — Gemini (once, with original query)
+        # stage 5: gemini LLM fallback (run once with original query)
         print(f"[TitleResolver] All local stages missed '{title_query}'. Trying Gemini.")
         gemini_titles = self._resolve_title_with_gemini(title_query, all_titles)
         gemini_events = [e for e in all_events if e.get("title", "") in gemini_titles]
@@ -450,10 +416,6 @@ class IntentExecutionEngine:
             if nums: return int(nums[0])
         return 60
 
-    # ------------------------------------------------------------------ #
-    #  INTENT EXECUTORS                                                  #
-    # ------------------------------------------------------------------ #
-
     def handle_create_event(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
         print("\n>>> [CreateEvent] ENTERED HANDLER <<<")
         print(f"  entities: {entities}")
@@ -505,7 +467,7 @@ class IntentExecutionEngine:
             location = locations_list[0] if locations_list else ""
             print(f"  location: {location}")
 
-            # --- TELEMETRY INITIALIZATION ---
+            # mark perishable if category is time-sensitive
             perishable_categories = ["Health & Fitness", "Routine", "Meals", "Personal Care"]
             is_perishable = category in perishable_categories
 
@@ -543,7 +505,6 @@ class IntentExecutionEngine:
                 "is_perishable": is_perishable
             }
 
-            print("  Writing to Firestore...")
             try:
                 events_ref.document(doc_id).set(event_data)
                 written = events_ref.document(doc_id).get().to_dict()
@@ -577,7 +538,6 @@ class IntentExecutionEngine:
         try:
             from google.cloud import firestore 
             
-            # ── 1. Extract target date/time ────────────────────────────────────
             event_titles     = [t for t in entities.get("events", []) if t]
             dates_list       = entities.get("dates", [])
             times_list       = entities.get("times", [])
@@ -598,7 +558,6 @@ class IntentExecutionEngine:
 
             events_ref = self.db.collection("users").document(user_id).collection("raw_events")
 
-            # ── 2. Timezone-aware dateparser helper ────────────────────────────
             def parse_dt(expression: str) -> dt.datetime | None:
                 now_local = dt.datetime.now(user_tz)
                 return dateparser.parse(
@@ -612,7 +571,7 @@ class IntentExecutionEngine:
                         "PREFER_DATES_FROM":       "future",
                     }
                 )
-            # ── 3. Build source-day snapshot ───────────────────────────────────
+            # build snapshot of events on source day for faster title matching
             source_ts = entities.get("source_timestamp")
             if not source_ts:
                 source_date_str = entities.get("source_date")
@@ -631,14 +590,12 @@ class IntentExecutionEngine:
                 for d in docs:
                     data        = d.to_dict()
                     event_start = data.get("start", "")
-                    # THE FIX: Only include the event if it's within the window AND its status is 'pending'
-                    # We check for 'pending' explicitly to ignore 'completed' and 'missed'
+                    # only include pending events within the window
                     status = data.get("completion_status", "pending")
                     
                     if event_start < window_end and status == "pending":
                         day_snapshot.append(data | {"_doc_id": d.id})
                 print(f"  Day snapshot (Filtered): {len(day_snapshot)} pending event(s) found.")
-            # ── 4. Resolve each title to a Firestore document ─────────────────
             processed_ids  = set()
             resolved_pairs = []
 
@@ -688,7 +645,7 @@ class IntentExecutionEngine:
                     f"Titles searched: {', '.join(event_titles)}"
                 )
 
-            # ── 5. TWO-PASS: compute all slots BEFORE writing ──────────────────
+            # two-pass: plan all slot moves before writing to avoid mid-batch collisions
             all_batch_ids = {pair[0]["_doc_id"] for pair in resolved_pairs}
             in_memory_allocations = []
             MAX_SANE_DURATION = dt.timedelta(hours=23)
@@ -727,7 +684,6 @@ class IntentExecutionEngine:
                 print(f"    [SlotCheck] Search exhausted — using preferred slot as fallback")
                 return start_iso, end_iso
 
-            # ── PASS 1: plan all moves & Calculate Telemetry Hooks ─────────────
             planned_updates = []
 
             for target_event, original_title in resolved_pairs:
@@ -797,7 +753,7 @@ class IntentExecutionEngine:
 
                 in_memory_allocations.append((final_start, final_end))
 
-                # --- TELEMETRY HOOKS INJECTION ---
+                # snooze / debt telemetry
                 snooze_increment = 0
                 if orig_start_dt and new_start_dt and new_start_dt > orig_start_dt:
                     snooze_increment = 1
@@ -808,7 +764,7 @@ class IntentExecutionEngine:
                 is_perish = target_event.get("is_perishable", False)
                 debt_refund = 0
 
-                # Check for Debt Relief
+                # debt relief on reschedule from missed
                 if comp_status == "missed" and snooze_increment > 0:
                     comp_status = "pending" # Resurrect the event
                     
@@ -824,7 +780,6 @@ class IntentExecutionEngine:
                     snooze_count, comp_status, debt_applied, debt_refund
                 ))
 
-            # ── PASS 2: write all updates and execute Refunds ──────────────────
             results  = []
             messages = []
 
@@ -841,13 +796,12 @@ class IntentExecutionEngine:
                     "proposed_end":         final_end,
                     "has_drifted":          False,
                     "sync_action_required": "push_to_provider",
-                    # Apply Telemetry Updates
+                    # telemetry
                     "snooze_count":         snz,
                     "completion_status":    cmp_st,
                     "debt_applied":         dbt_app,
                 })
 
-                # Execute Atomic Debt Refund if applicable
                 if dbt_ref > 0:
                     try:
                         self.db.collection("users").document(user_id).update({
@@ -865,7 +819,6 @@ class IntentExecutionEngine:
                 })
                 print(f"  ✅ Written '{title}': {final_start} → {final_end}")
 
-            # ── 6. Build response ──────────────────────────────────────────────
             if not results:
                 raise ValueError("No events were updated. " + " ".join(messages))
 
@@ -982,7 +935,7 @@ class IntentExecutionEngine:
             found_events = []
             query_context_msg = ""
 
-            # ── Ambiguity bypass — user already picked a specific doc ──────
+            # ambiguity bypass: user already picked a doc, fetch directly
             selected_doc_id = entities.get("selected_doc_id")
             if selected_doc_id:
                 print(f"  selected_doc_id={selected_doc_id} — fetching directly")
@@ -1087,23 +1040,19 @@ class IntentExecutionEngine:
 
         try:
             dates_list = entities.get("dates", [])
-            # Use the adapter logic to catch source_date if the LLM misclassified it
             source_date = entities.get("source_date")
             if source_date and not dates_list:
                 dates_list.append(source_date)
 
             durations_list = entities.get("durations", [])
             
-            # 1. Determine requested duration (default 60 mins)
-            req_duration_mins = 60
+            req_duration_mins = 60  # default 60 mins
             if durations_list:
                 req_duration_mins = self._parse_duration_minutes(durations_list[0])
             
             now_local = dt.datetime.now(user_tz)
             
-            # 2. Define the Search Window boundaries
             if dates_list:
-                # Target a specific day: 09:00 to 18:00 (Working Hours)
                 target_date_str = dates_list[-1]
                 parsed_day = dateparser.parse(target_date_str, settings={
                     "TIMEZONE": user_tz_str, "RETURN_AS_TIMEZONE_AWARE": True,
@@ -1114,17 +1063,15 @@ class IntentExecutionEngine:
                 
                 search_start = parsed_day.replace(hour=9, minute=0, second=0, microsecond=0)
                 search_end = parsed_day.replace(hour=18, minute=0, second=0, microsecond=0)
-                # If searching for today, don't look in the past
                 if search_start < now_local:
                     search_start = now_local
             else:
-                # General search: From now until tomorrow evening
+                # no date given: search from now until tomorrow evening
                 search_start = now_local
                 search_end = (now_local + dt.timedelta(days=1)).replace(hour=18, minute=0)
 
             print(f"  Searching for {req_duration_mins}m gap between {search_start} and {search_end}")
 
-            # 3. Fetch all events that overlap this window
             events_ref = self.db.collection("users").document(user_id).collection("raw_events")
             start_iso = search_start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
             end_iso = search_end.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1135,33 +1082,26 @@ class IntentExecutionEngine:
                 data = d.to_dict()
                 e_start = dt.datetime.fromisoformat(data['start'].replace("Z", "+00:00")).astimezone(user_tz)
                 e_end = dt.datetime.fromisoformat(data['end'].replace("Z", "+00:00")).astimezone(user_tz)
-                # Filter to only those that actually overlap our search window
                 if e_start < search_end:
                     blocking_events.append({'start': e_start, 'end': e_end})
 
-            # Sort by start time
             blocking_events.sort(key=lambda x: x['start'])
 
-            # 4. Find Gaps
             free_slots = []
             current_time = search_start
 
             for event in blocking_events:
-                # If there is enough time before the next event
                 gap = (event['start'] - current_time).total_seconds() / 60
                 if gap >= req_duration_mins:
                     free_slots.append({'start': current_time, 'end': event['start']})
                 
-                # Advance current_time to the end of this event (if it moves us forward)
                 if event['end'] > current_time:
                     current_time = event['end']
 
-            # Check for one final gap after the last event until search_end
             final_gap = (search_end - current_time).total_seconds() / 60
             if final_gap >= req_duration_mins:
                 free_slots.append({'start': current_time, 'end': search_end})
 
-            # 5. Format Response
             if not free_slots:
                 day_name = "today" if not dates_list else search_start.strftime("%A")
                 return {
@@ -1170,9 +1110,8 @@ class IntentExecutionEngine:
                     "data": {"slots": []}
                 }
 
-            # Conversational formatting
             slot_strings = []
-            for slot in free_slots[:3]: # Suggest top 3
+            for slot in free_slots[:3]:
                 time_str = slot['start'].strftime("%-I:%M %p")
                 slot_strings.append(time_str)
 
@@ -1199,11 +1138,10 @@ class IntentExecutionEngine:
         user_tz = zoneinfo.ZoneInfo(user_tz_str)
         
         try:
-            # ── 1. Extract Event Title & Safety Rescue ────────────────────────
             event_titles = [t for t in entities.get("events", []) if t]
             times_list   = entities.get("times", [])
             
-            # HEURISTIC RESCUE: If LLM put an activity in 'times', move it to titles
+            # rescue: move common activities from times[] to event_titles[] if misclassified
             activity_keywords = ["lunch", "dinner", "breakfast", "gym", "workout", "meeting", "revision"]
             if not event_titles and times_list:
                 for t in times_list:
@@ -1214,7 +1152,6 @@ class IntentExecutionEngine:
             has_specific_title = len(event_titles) > 0
             title = event_titles[0] if has_specific_title else "your event"
 
-            # ── 2. The rest of your existing logic ──────────────────────────
             durations_list = entities.get("durations", [])
             req_duration_mins = self._parse_duration_minutes(durations_list[0]) if durations_list else 60
 
@@ -1248,7 +1185,6 @@ class IntentExecutionEngine:
             seen_ids = set()
             days_checked = 0
 
-            # ── 3. Scanning Loop ──────────────────────────────────────────────
             while len(free_slots) < 3 and days_checked < max_days_to_check:
                 day_midnight = current_check_date.replace(hour=0, minute=0, second=0, microsecond=0)
                 day_start = current_check_date.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -1270,7 +1206,7 @@ class IntentExecutionEngine:
                     e_start = dt.datetime.fromisoformat(data['start'].replace("Z", "+00:00")).astimezone(user_tz)
                     e_end = dt.datetime.fromisoformat(data['end'].replace("Z", "+00:00")).astimezone(user_tz)
                     
-                    # Exact or fuzzy match for the title to trigger the "You already have..." warning
+                    # flag if a similar event already exists on this day
                     if has_specific_title and title.lower() in data.get('title', '').lower():
                         if e_start.date() == current_check_date.date() and d.id not in seen_ids:
                             existing_similar_events.append({'title': data.get('title'), 'start': e_start, 'end': e_end})
@@ -1300,7 +1236,6 @@ class IntentExecutionEngine:
                 current_check_date += dt.timedelta(days=1)
                 days_checked += 1
 
-            # ── 4. Formatting ─────────────────────────────────────────────────
             if not free_slots:
                 return {"status": "success", "message": f"No {req_duration_mins}m slots found for '{title}'."}
 
@@ -1329,8 +1264,7 @@ class IntentExecutionEngine:
         try:
             event_titles = [t for t in entities.get("events", []) if t]
             
-            # HEURISTIC RESCUE: If titles are empty, check the times/tasks slot 
-            # for common activities (gym, lunch, etc)
+            # rescue: check times/tasks slots for common activity keywords
             if not event_titles:
                 potential_titles = entities.get("times", []) + entities.get("tasks", [])
                 activity_keywords = ["gym", "lunch", "dinner", "meeting", "workout", "revision"]
@@ -1341,15 +1275,12 @@ class IntentExecutionEngine:
             if not event_titles:
                 raise ValueError("I couldn't identify which event you want to change.")
 
-            # ── 1. Parse the Recurrence Pattern ─────────────────────────────────
             recurrence_raw = entities.get("recurrence", [])
-            # We now have the REAL raw_text thanks to the router fix
             text_to_scan = (" ".join(recurrence_raw) + " " + raw_text).lower()
 
             rec_type = None
             rec_days = []
 
-            # Match "none" patterns
             if re.search(r'\b(stop|none|never|don\'t repeat|cancel recurrence|remove recurrence|delete recurrence|from repeating|no longer repeat)\b', text_to_scan):
                 rec_type = "none"
             elif re.search(r'\b(daily|every day|everyday)\b', text_to_scan):
@@ -1375,7 +1306,6 @@ class IntentExecutionEngine:
             if not rec_type:
                 raise ValueError("I couldn't understand the new repeating pattern. Try 'make it weekly' or 'stop repeating'.")
 
-            # ── 2. Find and Update the Events ──────────────────────────────────
             events_ref = self.db.collection("users").document(user_id).collection("raw_events")
             results = []
             messages = []
@@ -1398,7 +1328,6 @@ class IntentExecutionEngine:
                 results.append({"eventId": doc_id, "title": title, "recurrence": rec_type})
                 print(f"  ✅ Updated '{title}' to: {rec_type}")
 
-            # ── 3. Build Response ──────────────────────────────────────────────
             if not results:
                 raise ValueError(" ".join(messages) or "No events were updated.")
 
@@ -1428,27 +1357,22 @@ class IntentExecutionEngine:
         user_tz_str = self._get_user_tz_str(user_id)
 
         try:
-            # 1. Extract Task Title
             tasks_list = entities.get("tasks", [])
             
-            # SAFETY RESCUE: If the LLM put the task in the 'events' array by mistake
             if not tasks_list:
                 tasks_list = entities.get("events", [])
                 
             title = tasks_list[0] if tasks_list else "Untitled Task"
             
-            # 2. Extract Duration
             durations_list = entities.get("durations", [])
             estimated_duration = self._parse_duration_minutes(durations_list[0]) if durations_list else None
 
-            # 3. Extract Due Date (Using the engine's normalized start_timestamp)
             target_ts = entities.get("start_timestamp")
             due_date = target_ts if target_ts else None
 
-            # 4. Heuristic Extraction for Priority and Energy
             text_lower = raw_text.lower()
             
-            priority = 3 # Default medium priority
+            priority = 3
             if re.search(r'\b(urgent|asap|high priority|critical|important)\b', text_lower):
                 priority = 1
             elif re.search(r'\b(low priority|whenever|no rush)\b', text_lower):
@@ -1460,7 +1384,6 @@ class IntentExecutionEngine:
             elif re.search(r'\b(hard|focus|deep work|intense|difficult)\b', text_lower):
                 energy_level = "high"
 
-            # 5. Build Task Data
             doc_id = self._generate_id("task")
             
             task_data = {
@@ -1481,25 +1404,21 @@ class IntentExecutionEngine:
                 "is_locked": False,
                 "created_at": dt.datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 
-                # --- NEW TELEMETRY FIELDS ---
                 "snooze_count": 0,
                 "completed_at": None,
                 "debt_applied": False,
                 "is_perishable": False
             }
 
-            # 6. Write to Firestore
             tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
             tasks_ref.document(doc_id).set(task_data)
 
-            # 7. Format Conversational Response
             msg = f"I have added '{title}' to your tasks."
             
             if due_date:
                 friendly_time = self._format_time(due_date, user_tz_str)
                 msg = f"I have added '{title}' to your tasks, due {friendly_time}."
                 
-            # Append extra context if the AI extracted implicit data
             extras = []
             if estimated_duration: extras.append(f"{estimated_duration} mins")
             if priority == 1: extras.append("High Priority")
@@ -1537,11 +1456,9 @@ class IntentExecutionEngine:
         try:
             from google.cloud import firestore # Needed for Atomic decrement
             
-            # --- 1. SMART TASK RESOLUTION ---
             print("\n  [Step 1] Resolving Target Tasks...")
             tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
             
-            # Fetch all active tasks to cross-reference with raw text (including missed to allow resurrection)
             active_tasks = []
             print("    -> Fetching active tasks from Firestore for raw text matching...")
             for status in ["pending", "scheduled", "in_progress"]:
@@ -1554,10 +1471,10 @@ class IntentExecutionEngine:
             target_tasks = []
             text_lower = raw_text.lower()
             
-            # Sort tasks by length descending so we match "final year project" before "project"
+            # longest match first to avoid partial title collisions
             active_tasks.sort(key=lambda x: len(x.get("title", "")), reverse=True)
             
-            # 1A. Raw Text Exact Match Override (Fixes NER Fragmentation)
+            # 1A: raw text exact match (fixes NER fragmentation)
             print("    -> Attempting 'Longest String' Raw Text Override...")
             matched_exact = False
             for t in active_tasks:
@@ -1568,7 +1485,7 @@ class IntentExecutionEngine:
                     matched_exact = True
                     break 
             
-            # 1B. Fallback to NER extracted tokens if Exact Match failed
+            # 1B: NER token fallback
             if not matched_exact:
                 print("    -> No exact matches in raw text. Falling back to NER tokens...")
                 task_titles = [t for t in entities.get("tasks", []) if t]
@@ -1601,7 +1518,6 @@ class IntentExecutionEngine:
             
             print(f"  [Step 1 Complete] Targeted Tasks: {[t.get('title') for t in target_tasks]}")
 
-            # --- 2. EXTRACT UPDATES ---
             print("\n  [Step 2] Extracting Updates...")
             
             durations_list = entities.get("durations", [])
@@ -1624,7 +1540,6 @@ class IntentExecutionEngine:
             elif re.search(r'\b(hard|focus|deep work|intense|difficult)\b', text_lower):
                 new_energy = "high"
 
-            # --- 3. APPLY UPDATES ---
             print("\n  [Step 3] Applying Updates to Firestore...")
             
             def parse_dt(expression: str) -> dt.datetime | None:
@@ -1727,7 +1642,6 @@ class IntentExecutionEngine:
                             
                     update_data["debt_applied"] = False
 
-                # Handle other fields
                 if new_duration: update_data["estimated_duration"] = new_duration
                 if new_priority is not None: update_data["priority"] = new_priority
                 if new_energy: update_data["energy_level"] = new_energy
@@ -1736,7 +1650,6 @@ class IntentExecutionEngine:
                     messages.append(f"I understood you want to update '{title}', but I wasn't sure what to change.")
                     continue
 
-                # Execute Firestore Update
                 try:
                     tasks_ref.document(doc_id).update(update_data)
                     results.append({"taskId": doc_id, "title": title, "updates": update_data})
@@ -1749,7 +1662,6 @@ class IntentExecutionEngine:
                     print(f"      * ❌ Firestore update failed: {e}")
                     raise
 
-            # --- 4. FORMAT RESPONSE ---
             if not results:
                 raise ValueError(" ".join(messages) or "No tasks were updated.")
 
@@ -1776,12 +1688,11 @@ class IntentExecutionEngine:
         try:
             from google.cloud import firestore # Needed for Atomic decrement
             
-            # --- 1. SMART TASK RESOLUTION ---
             print("\n  [Step 1] Resolving Target Tasks...")
             tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
             
             active_tasks = []
-            # Include missed tasks so you can complete them late
+            # include missed so late completion is allowed
             for status in ["pending", "scheduled", "in_progress", "missed"]:
                 for doc in tasks_ref.where("status", "==", status).stream():
                     t_data = doc.to_dict()
@@ -1807,7 +1718,6 @@ class IntentExecutionEngine:
                 
                 print(f"    -> Extracted NER tokens to resolve: {task_titles}")
                 for title in task_titles:
-                    # --- THE FIX: AMBIGUITY BYPASS ---
                     direct_match = next((t for t in active_tasks if t["_doc_id"] == title), None)
                     if direct_match:
                         if direct_match not in target_tasks:
@@ -1826,7 +1736,6 @@ class IntentExecutionEngine:
             if not target_tasks:
                 raise ValueError("I couldn't identify which task you want to check off.")
 
-            # --- 2. APPLY UPDATES ---
             print("\n  [Step 2] Applying Completion Status to Firestore...")
             results = []
             messages = []
@@ -1843,7 +1752,7 @@ class IntentExecutionEngine:
                     "completed_at": now_iso
                 }
                 
-                # --- A. FUTURE EVENT CLEANUP LOGIC ---
+                # clean up future linked events on completion
                 linked_event_ids = target_task.get("linked_event_ids", [])
                 if linked_event_ids:
                     events_ref = self.db.collection("users").document(user_id).collection("raw_events")
@@ -1871,7 +1780,7 @@ class IntentExecutionEngine:
                         update_data["linked_event_ids"] = events_to_keep
                         print(f"      * Cleaned up {events_deleted} future calendar events for '{title}'.")
 
-                # --- B. LATE COMPLETION DEBT RELIEF ---
+                # late completion debt relief
                 debt_applied = target_task.get("debt_applied", False)
                 is_perish = target_task.get("is_perishable", False)
                 
@@ -1904,7 +1813,6 @@ class IntentExecutionEngine:
                         
                     update_data["debt_applied"] = False
 
-                # Execute Firestore Update
                 try:
                     tasks_ref.document(doc_id).update(update_data)
                     results.append({"taskId": doc_id, "title": title, "status": "completed"})
@@ -1913,7 +1821,6 @@ class IntentExecutionEngine:
                     print(f"      * ❌ Firestore update failed: {e}")
                     raise
 
-            # --- 3. FORMAT RESPONSE ---
             if not results:
                 raise ValueError(" ".join(messages) or "No tasks were completed.")
 
@@ -1946,11 +1853,9 @@ class IntentExecutionEngine:
         print(f"  [Input] User ID:  {user_id}")
 
         try:
-            # --- 1. SMART TASK RESOLUTION ---
             print("\n  [Step 1] Resolving Target Tasks for Deletion...")
             tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
             
-            # Fetch active AND completed tasks (users often delete tasks to clean up)
             all_tasks = []
             print("    -> Fetching tasks from Firestore for raw text matching...")
             for status in ["pending", "scheduled", "in_progress", "completed"]:
@@ -1963,10 +1868,10 @@ class IntentExecutionEngine:
             target_tasks = []
             text_lower = raw_text.lower()
             
-            # Sort tasks by length descending (Longest String Override)
+            # longest match first to avoid partial title collisions
             all_tasks.sort(key=lambda x: len(x.get("title", "")), reverse=True)
             
-            # 1A. Raw Text Exact Match Override
+            # 1A: raw text exact match
             print("    -> Attempting 'Longest String' Raw Text Override...")
             matched_exact = False
             for t in all_tasks:
@@ -1977,12 +1882,12 @@ class IntentExecutionEngine:
                     matched_exact = True
                     break # Stop after finding the most specific match
             
-            # 1B. Fallback to NER extracted tokens if Exact Match failed
+            # 1B: NER token fallback
             if not matched_exact:
                 print("    -> No exact matches in raw text. Falling back to NER tokens...")
                 task_titles = [t for t in entities.get("tasks", []) if t]
                 
-                # Heuristic Rescue: If the AI put the task in the 'events' array
+                # NER fallback: LLM may classify task under events[]
                 if not task_titles:
                     task_titles = [t for t in entities.get("events", []) if t]
                     print(f"    -> Heuristic Rescue: Using event tokens as tasks: {task_titles}")
@@ -2008,7 +1913,6 @@ class IntentExecutionEngine:
             
             print(f"  [Step 1 Complete] Targeted Tasks: {[t.get('title') for t in target_tasks]}")
 
-            # --- 2. APPLY DELETIONS ---
             print("\n  [Step 2] Deleting Documents from Firestore...")
             results = []
             messages = []
@@ -2019,7 +1923,6 @@ class IntentExecutionEngine:
                 print(f"    -> Deleting Task: '{title}' (ID: {doc_id})")
                 
                 try:
-                    # Wipe the document entirely
                     tasks_ref.document(doc_id).delete()
                     results.append({"taskId": doc_id, "title": title})
                     messages.append(f"Deleted '{title}'.")
@@ -2028,7 +1931,6 @@ class IntentExecutionEngine:
                     print(f"      * ❌ Firestore deletion failed: {e}")
                     raise
 
-            # --- 3. FORMAT RESPONSE ---
             print("\n  [Step 3] Formatting Response...")
             if not results:
                 raise ValueError(" ".join(messages) or "No tasks were deleted.")
@@ -2067,10 +1969,8 @@ class IntentExecutionEngine:
             tasks_ref = self.db.collection("users").document(user_id).collection("raw_tasks")
             text_lower = raw_text.lower().strip()
             
-            # --- 1. HEURISTIC METADATA EXTRACTION ---
             print("\n  [Step 1] Extracting Query Parameters...")
             
-            # BROADENED STATUS SCANNER: Catch "complete", "completed", "done", etc.
             target_statuses = ["pending", "scheduled", "in_progress"]
             status_label = "pending"
             
@@ -2081,12 +1981,11 @@ class IntentExecutionEngine:
             else:
                 print(f"    -> Intent identified as checking PENDING tasks.")
 
-            # SCAN FOR "DUE": If the user asks for "due" tasks, we flag that we only want items with dates
             is_due_query = "due" in text_lower
             if is_due_query:
                 print("    -> User specifically asked for 'due' tasks. Will filter for deadlines.")
 
-            # Date Extraction (Adapter + Safety Net)
+            # Date Extraction
             dates_list = entities.get("dates", [])
             source_date = entities.get("source_date")
             if source_date and not dates_list:
@@ -2098,7 +1997,6 @@ class IntentExecutionEngine:
                     dates_list.append(day_match.group(1))
                     print(f"    -> [Safety Net] Extracted date from text: {dates_list[-1]}")
 
-            # Identify if specific tasks were requested
             task_titles = [t for t in entities.get("tasks", []) if t]
             if not task_titles and "task" not in text_lower:
                 task_titles = [t for t in entities.get("events", []) if t]
@@ -2106,9 +2004,7 @@ class IntentExecutionEngine:
             found_tasks = []
             query_context_msg = ""
 
-            # --- 2. EXECUTE QUERY ---
-
-            # SCENARIO A: Specific Task Status (e.g., "Is the project done?")
+            # specific task lookup
             if task_titles:
                 print(f"\n  [Step 2 - Scenario A] Resolving Specific Tasks: {task_titles}")
                 all_tasks = []
@@ -2124,7 +2020,7 @@ class IntentExecutionEngine:
                         found_tasks.append(t)
                         break
 
-            # SCENARIO B: Timeframe Query (e.g., "What is due tomorrow?")
+            # timeframe query
             elif dates_list:
                 target_date_str = dates_list[-1]
                 print(f"\n  [Step 2 - Scenario B] Querying Timeframe: '{target_date_str}'")
@@ -2152,7 +2048,7 @@ class IntentExecutionEngine:
                             if due and window_start <= due < window_end:
                                 found_tasks.append(data | {"_doc_id": d.id})
 
-            # SCENARIO C: General List Query (e.g., "What tasks do I have?")
+            # general list
             else:
                 print(f"\n  [Step 2 - Scenario C] General Query for '{status_label}' tasks")
                 query_context_msg = "on your list"
@@ -2160,12 +2056,10 @@ class IntentExecutionEngine:
                     docs = tasks_ref.where("status", "==", status).stream()
                     for d in docs:
                         data = d.to_dict()
-                        # If user said "due", only show tasks that actually have a deadline
-                        if is_due_query and not data.get("due_date"):
+                        if is_due_query and not data.get("due_date"):  # skip tasks without deadlines
                             continue
                         found_tasks.append(data | {"_doc_id": d.id})
 
-            # --- 3. FORMAT RESPONSE ---
             print("\n  [Step 3] Formatting Response...")
             if not found_tasks:
                 msg = f"You don't have any {status_label} tasks {query_context_msg}."
@@ -2207,14 +2101,12 @@ class IntentExecutionEngine:
         
         user_tz_str = self._get_user_tz_str(user_id)
         
-        # Fix 1: Sanitize input text (remove quotes)
         clean_text = raw_text.strip().strip('"').strip("'")
         print(f"  [Input] Clean Text: '{clean_text}'")
 
         try:
             print("\n  [Step 1] Extracting Reminder Parameters...")
             
-            # Fix 2: Explicitly extract the actual string value from NER
             rem_titles = entities.get("reminders", []) or entities.get("tasks", []) or entities.get("events", [])
             title = rem_titles[0] if (rem_titles and isinstance(rem_titles, list)) else "Untitled Reminder"
             print(f"    -> Resolved Title Variable: '{title}'")
@@ -2223,7 +2115,6 @@ class IntentExecutionEngine:
             if not trigger_time:
                 raise ValueError("I couldn't determine a time for this reminder.")
 
-            # Fix 3: Ensure priority variable is mapped correctly
             text_lower = clean_text.lower()
             extracted_priority = "standard"
             if any(w in text_lower for w in ["urgent", "asap", "high priority", "important"]):
@@ -2233,7 +2124,6 @@ class IntentExecutionEngine:
             print("\n  [Step 2] Constructing Pydantic-Ready Payload...")
             doc_id = self._generate_id("rem")
             
-            # CRITICAL: We use the variables resolved above
             reminder_data = {
                 "id": doc_id,
                 "user_id": user_id,
@@ -2289,21 +2179,18 @@ class IntentExecutionEngine:
             
             print(f"    -> Retrieved {len(active_rems)} candidate(s).")
 
-            # --- SEARCH LOGIC ---
             target_rems = []
             text_lower = clean_text.lower()
             
-            # Sort by length to catch specific titles first
             active_rems.sort(key=lambda x: len(x.get("title", "")), reverse=True)
             
             print("    -> Attempting String Matching...")
             for r in active_rems:
                 r_title = r.get("title", "").lower()
-                # Check if database title exists inside user text
                 if r_title and r_title in text_lower:
                     print(f"      * SUCCESS: Match found for '{r_title}'")
                     target_rems.append(r)
-                    break # Single target match
+                    break
 
             if not target_rems:
                 print("    -> No string match. Falling back to NER tokens...")
@@ -2326,7 +2213,6 @@ class IntentExecutionEngine:
                     print(f"       - Title: '{r.get('title')}' | Status: {r.get('status')}")
                 raise ValueError("I couldn't identify which reminder you want to update.")
 
-            # --- UPDATE LOGIC ---
             print("\n  [Step 2] Processing Update Fields...")
             update_data = {}
             raw_ts = entities.get("start_timestamp")
@@ -2412,7 +2298,6 @@ class IntentExecutionEngine:
 
                 
 
-    # --- PLACEHOLDER HANDLERS ---
     def _placeholder_handler(self, intent: str, entities: dict, user_id: str, raw_text: str = "") -> dict:
         print(f"[{intent}] Placeholder called with entities: {entities}")
         return {
@@ -2445,7 +2330,7 @@ class IntentExecutionEngine:
                     "data": {}
                 }
 
-            # Normalise to a list (ConstraintParser may return a single dict or a list)
+            # ConstraintParser may return single dict or list
             constraints = parsed if isinstance(parsed, list) else [parsed]
 
             prefs_ref = (

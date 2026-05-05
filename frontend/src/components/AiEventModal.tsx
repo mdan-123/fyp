@@ -230,7 +230,6 @@
 //                     <h4 className="text-xl text-gray-900 font-medium capitalize">
 //                     {parsedEvent.entities.events[0] || "New Event"}
 //                     </h4>
-                    
 //                     <div className="text-gray-600 text-sm space-y-2">
 //                     <div className="flex items-center gap-2">
 //                         <span>📅</span>

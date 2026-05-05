@@ -505,7 +505,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
       <div className="fixed top-0 right-0 z-[200] p-4 pt-16 sm:p-6 sm:pt-20 flex flex-col gap-3 pointer-events-none mt-[env(safe-area-inset-top,0px)]">
         {activeToasts.map((toast) => (
           toast.toastKind === "risk_alert" ? (
-            // ── Risk Alert Toast ──────────────────────────────────────────
+            // ── Risk Alert Toast 
             <div
               key={toast.id}
               className="w-full sm:w-80 bg-white/80 dark:bg-white/5 backdrop-blur-xl border border-amber-300/60 dark:border-amber-500/20 rounded-3xl shadow-lg dark:shadow-black/40 p-4 pointer-events-auto animate-in slide-in-from-top-10 fade-in duration-300 flex items-start gap-3"
@@ -557,7 +557,7 @@ export default function NotificationProvider({ children }: { children: ReactNode
               </button>
             </div>
           ) : (
-            // ── Reminder Toast ────────────────────────────────────────────
+            // ── Reminder Toast
             <div
               key={toast.id}
               className="w-full sm:w-80 bg-white/80 dark:bg-white/5 backdrop-blur-xl border border-slate-200/60 dark:border-white/10 rounded-3xl shadow-lg dark:shadow-black/40 p-4 pointer-events-auto animate-in slide-in-from-top-10 fade-in duration-300 flex items-start gap-3"
