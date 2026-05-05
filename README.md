@@ -54,7 +54,11 @@ OUTLOOK_CLIENT_SECRET=...
 # 4. Start the server
 cd src
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# in a separate terminal
+tailscale funnel 8000
 ```
+
 
 ### Frontend — Web
 
