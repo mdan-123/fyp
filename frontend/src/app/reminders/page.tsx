@@ -11,7 +11,7 @@ import GlobalSearchModal from "@/components/GlobalSearchModal";
 import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
-
+// main page for listing, creating, and managing reminders/alerts, with filtering and bulk actions
 export default function RemindersPage() {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid || null;
@@ -367,7 +367,6 @@ export default function RemindersPage() {
       className="min-h-screen font-sans pb-40 relative transition-colors duration-500"
       style={{ background: 'var(--color-bg-base)' }}
     >
-      {/* Decorative Orbs handled entirely by body::before in global.css */}
       
       <div className="sticky top-0 z-30 transition-all duration-300">
         {selectedReminderIds.length > 0 ? (

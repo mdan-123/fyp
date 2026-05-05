@@ -98,6 +98,9 @@ class ConstraintParser:
             clean_text = self._clean_response(response.text)
             return json.loads(clean_text)
         except Exception as e:
+            err_str = str(e).lower()
+            if "resource_exhausted" in err_str or "429" in err_str or "quota" in err_str:
+                raise  # let the caller (e.g. pref_queue) handle retries
             print(f"❌ Error: {e}")
             if response is not None and hasattr(response, 'text'):
                 print(f"   Raw Output: {response.text}")

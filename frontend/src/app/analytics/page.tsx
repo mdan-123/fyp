@@ -10,7 +10,7 @@ import { auth } from "@/lib/firebase";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
-// ─── CSS Animations ───────────────────────────────────────────────
+
 const AnimationsLoader = () => (
   <style>{`
     @keyframes fadeUp {
@@ -72,7 +72,7 @@ interface DashboardData {
   };
 }
 
-// ─── Utilities ───────────────────────────────────────────────────
+// Helper functions
 const formatTime = (mins: number) => {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -109,7 +109,7 @@ const describeArc = (cx: number, cy: number, r: number, startDeg: number, endDeg
   return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
 };
 
-// ─── Dual-Theme Glass Components ─────────────────────────────────
+//Dual-Theme Glass Components 
 function StatCard({ label, value, sub, accent, delay = 0 }: any) {
   return (
     <div
@@ -168,7 +168,7 @@ function GlassCard({ children, className = "", delay = 0 }: any) {
   );
 }
 
-// ─── Visualizations ──────────────────────────────────────────────
+ 
 function RiskGauge({ score }: { score: number }) {
   const clamp = Math.min(Math.max(score, 0), 100);
   const startAngle = 150;
@@ -233,11 +233,11 @@ function EnergyDonut({ high, medium, low }: { high: number; medium: number; low:
   );
 }
 
-// ─── NEW: Interactive Dual-Color Stacked Bar Chart ────────────────
+
 function InteractiveTrendChart({ data }: { data: TrendData[] }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   
-  // Find the highest combined total to scale the chart properly
+
   const max = Math.max(...data.map(d => d.tasks + d.events), 5);
 
   return (
@@ -245,7 +245,7 @@ function InteractiveTrendChart({ data }: { data: TrendData[] }) {
       {data.map((d, i) => {
         const total = d.tasks + d.events;
         const taskPct = total === 0 ? 0 : (d.tasks / total);
-        const heightPct = Math.max((total / max) * 100, 4); // 4% minimum height so empty days show a tiny bump
+        const heightPct = Math.max((total / max) * 100, 4); 
 
         return (
           <div 
@@ -255,7 +255,7 @@ function InteractiveTrendChart({ data }: { data: TrendData[] }) {
             onClick={() => setActiveIndex(activeIndex === i ? null : i)}
             className="flex-1 flex flex-col items-center justify-end h-full relative cursor-pointer group"
           >
-            {/* Interactive Tooltip */}
+
             <div 
               className={`absolute -top-14 z-20 flex flex-col items-center transition-all duration-200 ${activeIndex === i ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
             >
@@ -286,12 +286,13 @@ function InteractiveTrendChart({ data }: { data: TrendData[] }) {
             >
               {total > 0 && (
                 <>
-                  {/* Events Section (Top - Cyan/Info) */}
+                  {/* Events Section */}
                   <div 
                     className="absolute top-0 left-0 w-full transition-all duration-500" 
                     style={{ height: `${(1 - taskPct) * 100}%`, background: "var(--color-info)" }}
                   />
-                  {/* Tasks Section (Bottom - Indigo/Primary) */}
+                  {/* Tasks Section */}
+
                   <div 
                     className="absolute bottom-0 left-0 w-full transition-all duration-500" 
                     style={{ height: `${taskPct * 100}%`, background: "var(--color-accent-primary)" }}
@@ -311,7 +312,7 @@ function InteractiveTrendChart({ data }: { data: TrendData[] }) {
   );
 }
 
-// ─── NEW: Category Progress Stats ──────────────────────────────────
+// Category Progress Stats 
 function CategoryStatsLine({ category, scheduled, completed }: { category: string; scheduled: number; completed: number }) {
   const isComplete = scheduled > 0 && completed >= scheduled;
   const progressPct = scheduled === 0 ? 0 : Math.min((completed / scheduled) * 100, 100);
@@ -341,7 +342,7 @@ function CategoryStatsLine({ category, scheduled, completed }: { category: strin
 }
 
 
-// ─── Main Page ───────────────────────────────────────────────────
+// Main Page
 export default function AnalyticsPage() {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid || null;
@@ -349,7 +350,7 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // --- CALENDAR PREVIEW STATE ---
+  // CALENDAR PREVIEW STATE 
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [isGeneratingSchedule, setIsGeneratingSchedule] = useState(false);
   const [isOptimising, setIsOptimising] = useState(false);
@@ -376,7 +377,7 @@ export default function AnalyticsPage() {
     }
   };
 
-  // --- CALENDAR PREVIEW HANDLERS ---
+  // CALENDAR PREVIEW HANDLERS
   const handleReclaimTime = async () => {
     if (!userId) return;
     setIsGeneratingSchedule(true);
@@ -425,7 +426,7 @@ export default function AnalyticsPage() {
         setIsPreviewMode(false);
         setPreviewEvents([]);
         setOriginalEvents([]);
-        await fetchDashboard(userId); // Refresh analytics scores!
+        await fetchDashboard(userId); // Refresh analytics scores
       }
     } catch (error) {
       console.error("Commit failed:", error);
@@ -447,7 +448,7 @@ export default function AnalyticsPage() {
     );
   }
 
-  // --- RENDER CALENDAR PREVIEW ---
+  // RENDER CALENDAR PREVIEW 
   if (isPreviewMode) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden relative transition-colors duration-500" style={{ background: "var(--color-bg-base)", color: "var(--color-text-primary)" }}>
@@ -514,9 +515,6 @@ export default function AnalyticsPage() {
   return (
     <>
       <AnimationsLoader />
-      {/* THE FIX: Increased padding-bottom to pb-36 to guarantee clearance 
-        above the mobile Navigation Bar. 
-      */}
       <div className="min-h-screen font-sans pb-36 relative transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
 
         {/* Standardised Sticky Header */}

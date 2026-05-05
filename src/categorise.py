@@ -3,7 +3,11 @@ from google import genai
 from google.genai import types
 
 
-API_KEY = "AIzaSyDxuzF7HX6k_sSEk218ih74-fBXClD5kHM" 
+from dotenv import load_dotenv
+load_dotenv("./.env.local")
+
+API_KEY = os.getenv("GEMINI_API_KEY")
+
 
 def categorise_event(
     title: str, 

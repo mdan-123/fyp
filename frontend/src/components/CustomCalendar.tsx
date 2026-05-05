@@ -341,7 +341,7 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
                 </button>
               )}
               <button 
-                onClick={() => onOptimise(view === 'week' ? getWeekStart() : currentDate)}
+                onClick={() => { const today = new Date(); setCurrentDate(today); onOptimise(today); }}
                 className="p-2.5 rounded-xl transition-all duration-200 active:scale-95"
                 style={{
                   background: 'var(--color-accent-glow)',
@@ -390,7 +390,7 @@ export default function CustomCalendar({ events, onEventClick, onSync, isSyncing
               )}
 
               <button 
-                onClick={() => onOptimise(view === 'week' ? getWeekStart() : currentDate)}
+                onClick={() => { const today = new Date(); setCurrentDate(today); onOptimise(today); }}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] btn-primary"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

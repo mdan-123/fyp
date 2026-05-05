@@ -20,13 +20,14 @@ class BaseScheduler:
         self.scheduling_start_hour = max(0, min(23, scheduling_start_hour))
         self.scheduling_end_hour = max(self.scheduling_start_hour + 1, min(24, scheduling_end_hour))
         
-        # --- THE FIX: DYNAMIC TIMEZONE INJECTION ---
+        # Validate and store the user's local timezone
         try:
             self.user_tz = zoneinfo.ZoneInfo(user_tz_string)
         except zoneinfo.ZoneInfoNotFoundError:
             print(f"⚠️ Invalid timezone '{user_tz_string}', falling back to UTC.")
             self.user_tz = zoneinfo.ZoneInfo("UTC")
 
+        # Inject a default soft lunch window if the user hasn't defined one
         has_meal_window = any(p.get("category") == "MEAL" and p.get("type") == "WINDOW" for p in self.preferences)
         if not has_meal_window:
             self.preferences.append({
@@ -53,35 +54,36 @@ class BaseScheduler:
             return None
 
     def _get_day_boundaries(self, target_date: datetime.date):
+        # Weekend days return a zero-length window so the engine skips them
         if self.skip_weekends and target_date.weekday() >= 5:
             d = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz).astimezone(datetime.timezone.utc)
             return d, d
+
         start_of_day_local = datetime.datetime.combine(target_date, datetime.time(self.scheduling_start_hour % 24, 0), tzinfo=self.user_tz)
+
+        # Handle midnight end (hour 24 = start of next day)
         if self.scheduling_end_hour == 24:
             end_of_day_local = datetime.datetime.combine(target_date + datetime.timedelta(days=1), datetime.time(0, 0), tzinfo=self.user_tz)
         else:
             end_of_day_local = datetime.datetime.combine(target_date, datetime.time(self.scheduling_end_hour, 0), tzinfo=self.user_tz)
-        
-        # --- THE FIX: Block Time-Travel Booking ---
+
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         now_local = now_utc.astimezone(self.user_tz)
-        
-        # If the target date is in the past, return a zero-minute window so the engine skips it entirely
+
+        # Past dates return a zero-length window so they are skipped entirely
         if target_date < now_local.date():
             return end_of_day_local.astimezone(datetime.timezone.utc), end_of_day_local.astimezone(datetime.timezone.utc)
-            
-        # If the target date is today, push the start line forward to the current time
+
+        # For today, advance the start to now (rounded up to nearest 15 min)
         if target_date == now_local.date() and now_local > start_of_day_local:
-            # Round the current time up to the next 15-minute mark for neat calendar blocks
             discard = datetime.timedelta(minutes=now_local.minute % 15,
                                          seconds=now_local.second,
                                          microseconds=now_local.microsecond)
             now_local -= discard
             if discard > datetime.timedelta(0):
                 now_local += datetime.timedelta(minutes=15)
-            
             start_of_day_local = max(start_of_day_local, now_local)
-            
+
         return start_of_day_local.astimezone(datetime.timezone.utc), end_of_day_local.astimezone(datetime.timezone.utc)
 
     def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
@@ -245,8 +247,8 @@ class BaseScheduler:
 
 class TaskScheduler(BaseScheduler):
     def __init__(self, existing_events: List[Dict[str, Any]], preferences: List[Dict[str, Any]], user_tz_string: str = "UTC", skip_weekends: bool = False, scheduling_start_hour: int = 8, scheduling_end_hour: int = 22):
-        # --- THE FIX: PASS DYNAMIC TIMEZONE UP ---
         super().__init__(existing_events, preferences, user_tz_string=user_tz_string, skip_weekends=skip_weekends, scheduling_start_hour=scheduling_start_hour, scheduling_end_hour=scheduling_end_hour)
+        # Finer 5-minute scan interval for task placement vs 15 min for calendar events
         self.interval_minutes = 5
 
     def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
@@ -264,6 +266,7 @@ class TaskScheduler(BaseScheduler):
         return False
 
     def _map_task_to_category(self, task: Dict[str, Any]) -> str:
+        # Maps task tags/energy to a preference category used by the constraint scorer
         tags = [t.upper() for t in task.get("tags", [])]
         energy = task.get("energy_level", "medium").lower()
         if "DEEP WORK" in tags or "STUDY" in tags or energy == "high":
@@ -275,20 +278,24 @@ class TaskScheduler(BaseScheduler):
         return "SHALLOW_WORK"
 
     def _determine_chunks(self, task: Dict[str, Any]) -> List[int]:
-        """Pre-determine the list of chunk durations for a task without committing any slots."""
+        """Split a task's total duration into manageable chunks based on energy level."""
         total = task["estimated_duration"]
         energy = task.get("energy_level", "medium").lower()
+
+        # High-energy tasks use shorter, focused blocks; low-energy tasks allow longer stretches
         if energy == "high":
             min_chunk, max_chunk = 45, 90
         elif energy == "low":
             min_chunk, max_chunk = 15, 60
         else:
             min_chunk, max_chunk = 30, 120
+
         min_chunk = min(min_chunk, total)
         chunks: List[int] = []
         remaining = total
         while remaining > 0:
             chunk = min(remaining, max_chunk)
+            # If the leftover is too small for its own block, merge it into the last chunk
             if chunk < min_chunk:
                 if chunks:
                     chunks[-1] += chunk
@@ -336,7 +343,7 @@ class TaskScheduler(BaseScheduler):
         scheduled_task_events: List[Dict[str, Any]] = []
         valid_tasks = [t for t in pending_tasks if t.get("estimated_duration")]
 
-        # Sort: earlier due date first; break ties by higher priority (lower number = more urgent)
+        # Earlier due date first; ties broken by priority (1 = most urgent)
         valid_tasks.sort(key=lambda t: (
             t.get("due_date") or "9999-12-31T23:59:59Z",
             t.get("priority", 3)
@@ -353,8 +360,7 @@ class TaskScheduler(BaseScheduler):
             print(f"[TaskScheduler]   * '{t.get('title')}' | duration={t.get('estimated_duration')}min | due={t.get('due_date','NO DUE DATE')} | priority={t.get('priority',3)} | energy={t.get('energy_level','medium')}")
         print(f"[TaskScheduler] Scheduling order: earlier due date first, then higher priority (lower number)")
 
-        # ── Sequential scheduling: each task is scheduled with full awareness of the live calendar ──
-        # This ensures every chunk gets a real free slot, not a pre-collected stale candidate.
+        # Tasks are scheduled sequentially so each chunk sees the calendar updated by previous placements
         for task in valid_tasks:
             due_date_str = task.get("due_date")
             due_dt = self._parse_dt(due_date_str) if due_date_str else None
@@ -367,7 +373,7 @@ class TaskScheduler(BaseScheduler):
             chunks = self._determine_chunks(task)
             category = self._map_task_to_category(task)
             total_days = max(1, (task_end_date - start_date).days)
-            # Space chunks evenly: minimum gap between consecutive chunks of the same task
+            # Spread chunks across the window; min_spacing prevents two chunks landing on the same day
             min_spacing = max(1, total_days // len(chunks))
             total_chunk_min = sum(chunks)
 
@@ -381,8 +387,7 @@ class TaskScheduler(BaseScheduler):
             for chunk_idx, chunk_dur in enumerate(chunks):
                 placed = False
 
-                # Pass 1: strict spacing (evenly spread across window)
-                # Pass 2: relax spacing but still enforce no-same-day
+                # Pass 1: enforce even spacing. Pass 2: relax spacing, but never double-book a day
                 for relax_spacing in (False, True):
                     if placed:
                         break
@@ -416,6 +421,8 @@ class TaskScheduler(BaseScheduler):
                             local_end = slot.end.astimezone(self.user_tz)
                             print(f"[TaskScheduler]     OK Chunk[{chunk_idx}] '{title}' | {local_start.strftime('%Y-%m-%d %H:%M')} -> {local_end.strftime('%H:%M')} ({chunk_dur}min) | score={slot.score}")
 
+                            # Ghost event holds the slot in the in-memory calendar so later chunks
+                            # and tasks don't collide with it
                             ghost_event = {
                                 "id": f"evt_task_{uuid.uuid4().hex[:8]}",
                                 "title": title,
@@ -448,8 +455,7 @@ class TaskScheduler(BaseScheduler):
     
 class DebtRescheduler(BaseScheduler):
     def _is_overlapping(self, slot_start: datetime.datetime, slot_end: datetime.datetime) -> bool:
-        """Override: block on ALL calendar entries regardless of is_locked status,
-        so debt is never placed on top of any existing event."""
+        """Blocks on every calendar entry (locked or not) — debt slots must fit in genuinely free gaps."""
         for event in self.existing_events:
             event_start = self._parse_dt(event.get("start"))
             event_end = self._parse_dt(event.get("end"))
@@ -465,10 +471,12 @@ class DebtRescheduler(BaseScheduler):
     def schedule_debt(self, start_date: datetime.date, end_date: datetime.date, debt_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         print(f"\n[DebtRescheduler] 🧠 Booting up. Attempting to fill gaps with {len(debt_items)} reclaimed items...")
         ghost_events = []
-        
+
+        # Cap the search window at 14 days to avoid unbounded scans
         delta = end_date - start_date
-        max_days = min(delta.days + 1, 14) 
-        
+        max_days = min(delta.days + 1, 14)
+
+        # Higher-priority items get placed first
         debt_items.sort(key=lambda x: x.get("priority", 3))
 
         for item in debt_items:
@@ -481,19 +489,21 @@ class DebtRescheduler(BaseScheduler):
             
             best_slot_found = None
             best_negative_slot = None
-            
+
             for i in range(max_days):
                 current_date = start_date + datetime.timedelta(days=i)
                 slot = self.find_best_slot(current_date, duration, category)
-                
+
                 if slot:
                     if slot.score >= 0:
+                        # Good slot found — stop searching
                         best_slot_found = slot
-                        break 
+                        break
                     else:
+                        # Keep the least-bad negative slot as a fallback
                         if not best_negative_slot or slot.score > best_negative_slot.score:
                             best_negative_slot = slot
-            
+
             if not best_slot_found and best_negative_slot:
                 print(f"[DebtRescheduler]   ⚠️ Perfect gap not found. Using best available fallback.")
                 best_slot_found = best_negative_slot
@@ -507,7 +517,7 @@ class DebtRescheduler(BaseScheduler):
 
                 ghost_event = {
                     "id": f"ghost_debt_{uuid.uuid4().hex[:8]}",
-                    "title": item.get('title'), 
+                    "title": item.get('title'),
                     "start": start_str,
                     "end": end_str,
                     "is_locked": True,
@@ -519,7 +529,7 @@ class DebtRescheduler(BaseScheduler):
                     "is_ghost": True,
                     "linked_task_id": item.get("id") if item.get("original_type") == "task" else None,
                     "linked_event_id": item.get("id") if item.get("original_type") == "event" else None,
-                    "debt_duration": duration 
+                    "debt_duration": duration  # stored so the frontend can display catch-up context
                 }
                 
                 self.existing_events.append(ghost_event)

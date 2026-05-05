@@ -8,7 +8,7 @@ import { useSpeech } from "@/lib/useSpeech";
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
 
-// ─── Types ───────────────────────────────────────────────────────
+// Interfaces and Types
 type MessageRole = "user" | "assistant";
 type MessageStatus = "success" | "error" | "clarification_needed" | "loading";
 
@@ -49,7 +49,7 @@ interface Message {
   feedback?: "positive" | "negative";
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────
+// Helper functions
 const generateId = () => Math.random().toString(36).slice(2);
 
 const formatTime = (iso: string) => {
@@ -71,7 +71,7 @@ const formatSlotTime = (iso?: string) => {
   }
 };
 
-// ─── Typing indicator ─────────────────────────────────────────────
+
 const TypingDots = () => (
   <div className="flex items-center gap-1.5 px-1 py-1">
     {[0, 0.15, 0.3].map((d) => (
@@ -88,7 +88,7 @@ const TypingDots = () => (
   </div>
 );
 
-// ─── Individual message bubble ────────────────────────────────────
+
 function MessageBubble({
   msg,
   onCandidateSelect,
@@ -266,7 +266,7 @@ function MessageBubble({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────
+// main page component
 export default function ChatPage() {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.uid ?? null;
@@ -300,12 +300,12 @@ export default function ChatPage() {
     }
   }, [transcript, isListening]);
 
-  // ── Load history on mount ──────────────────────────────────────
+  // ── Load history on mount
   useEffect(() => {
     if (!authLoading && userId) loadHistory(userId);
   }, [userId, authLoading]);
 
-  // ── Auto-scroll on new messages ───────────────────────────────
+  // ── Auto-scroll on new messages 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -335,7 +335,7 @@ export default function ChatPage() {
     }
   };
 
-  // ── Core send function ─────────────────────────────────────────
+  // Core send function 
   const sendMessage = async (
     text: string,
     intentOverride?: string,
@@ -404,7 +404,7 @@ export default function ChatPage() {
     }
   };
 
-  // ── Build assistant message from API response ──────────────────
+  //  Build assistant message from API response
   const buildAssistantMessage = (data: any): Message => {
     const base = {
       id: generateId(),
@@ -447,7 +447,7 @@ export default function ChatPage() {
     return { ...base, content: data.message ?? "I couldn't process that.", status: "error" };
   };
 
-  // ── Clarification handlers ─────────────────────────────────────
+  // Clarification handlers
   const handleCandidateSelect = (candidateId: string, cl: ClarificationPayload, msgId: string) => {
     if (!cl.original_intent || !cl.original_entities) return;
     const entityKey = cl.entity_key ?? "events";
@@ -489,7 +489,7 @@ export default function ChatPage() {
     }]);
   };
 
-  // ── Feedback handlers ──────────────────────────────────────────
+  // Feedback handlers
   const requestFeedback = (msgId: string, rating: "positive" | "negative") => {
     const msgIndex = messages.findIndex(m => m.id === msgId);
     if (msgIndex <= 0) return;
@@ -543,7 +543,7 @@ export default function ChatPage() {
     }
   };
 
-  // ── Input handling ─────────────────────────────────────────────
+  // Input handling
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -559,10 +559,10 @@ export default function ChatPage() {
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────
+  // Render
   return (
     <div className="min-h-[100dvh] flex flex-col relative overflow-hidden transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
-      {/* Decorative Orbs handled entirely by body::before in global.css */}
+      
 
       {/* Feedback Modal Overlay */}
       {feedbackModal?.isOpen && (
@@ -638,7 +638,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Messages Area - Constrained to max-w-4xl for readability */}
+        
         <div
           className="flex-1 overflow-y-auto scrollbar-hide px-4 md:px-6 w-full max-w-4xl mx-auto"
         >
@@ -719,7 +719,7 @@ export default function ChatPage() {
               />
             ))}
 
-            {/* THE FIX: Deep symmetrical clearance spacer */}
+
             <div ref={bottomRef} className="h-20 md:h-18 flex-shrink-0" />
           </div>
         </div>

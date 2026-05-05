@@ -102,24 +102,14 @@ async def worker():
             try:
                 print(f"[PrefQueue] Processing job {job_id} (attempt {attempt + 1})")
 
-                # nlu_engine.process() is synchronous & CPU-bound – run in
-                # thread pool so we don't block the event loop.
-                result = await loop.run_in_executor(
+                # Parse the raw text into structured constraint(s) via ConstraintParser.
+                # This is synchronous + CPU/network-bound, so run in a thread pool.
+                parsed = await loop.run_in_executor(
                     None,
-                    lambda: deps.nlu_engine.process(
-                        job["raw_text"],
-                        job["user_id"],
-                        "",
-                        job["user_timezone"],
-                    ),
+                    lambda: deps.db_engine.constraint_parser.parse(job["raw_text"]),
                 )
 
-                intent = result.get("intent") if result else None
-                entities = (result.get("entities", {}) if result else {})
-                raw_preferences = entities.get("preferences", [])
-
-                if intent != "SET_PREFERENCES" or not raw_preferences:
-                    # Valid response, just nothing to save
+                if not parsed:
                     job["status"] = "done"
                     job["result"] = {
                         "status": "no_preference",
@@ -127,17 +117,19 @@ async def worker():
                         "saved_preferences": [],
                     }
                 else:
-                    # Persist to Firestore
+                    # Normalise to list (parser may return a single dict or a list)
+                    constraints = parsed if isinstance(parsed, list) else [parsed]
+
                     prefs_ref = (
                         deps.db.collection("users")
                         .document(job["user_id"])
                         .collection("preferences")
                     )
                     saved = []
-                    for pref in raw_preferences:
+                    for constraint in constraints:
                         new_ref = prefs_ref.document()
-                        new_ref.set(pref)
-                        saved.append({"id": new_ref.id, **pref})
+                        new_ref.set(constraint)
+                        saved.append({"id": new_ref.id, **constraint})
 
                     job["status"] = "done"
                     job["result"] = {

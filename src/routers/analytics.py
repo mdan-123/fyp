@@ -606,6 +606,117 @@ async def clear_snooze(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/analytics/capacity/{user_id}")
+async def get_capacity_status(
+    user_id: str,
+    _token=Depends(verify_firebase_token),
+):
+    """
+    Lightweight capacity check used when the user opens the 'Add Task' modal.
+    Scores all pending tasks and returns an aggregate risk status plus the
+    context values needed for the frontend to score the new task in real-time.
+    """
+    if not deps.ai_model or not deps.ai_explainer or not deps.ai_meta:
+        raise HTTPException(status_code=503, detail="AI Model is not loaded on the server.")
+    try:
+        now_dt = dt.datetime.now(timezone.utc)
+        user_tz = get_user_timezone(user_id)
+        now_local = now_dt.astimezone(user_tz)
+
+        user_doc = deps.db.collection("users").document(user_id).get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
+        global_debt = float(user_data.get("total_time_debt") or 0)
+
+        tasks_ref = deps.db.collection("users").document(user_id).collection("raw_tasks")
+        all_tasks = [doc.to_dict() for doc in tasks_ref.stream()]
+
+        # Build per-day task count for tasks_due_same_day feature
+        tasks_per_day: dict = defaultdict(int)
+        for t in all_tasks:
+            due_dt = parse_iso(t.get("due_date"))
+            if due_dt:
+                local_due = due_dt.astimezone(user_tz)
+                tasks_per_day[local_due.strftime("%Y-%m-%d")] += 1
+
+        today_str = now_local.strftime("%Y-%m-%d")
+        tasks_due_today = int(tasks_per_day.get(today_str, 0))
+
+        pending_tasks = [t for t in all_tasks if t.get("status") in ["pending", "scheduled"]]
+
+        if not pending_tasks:
+            return {
+                "status": "OK",
+                "danger_count": 0,
+                "avg_risk_score": 0,
+                "total_pending": 0,
+                "time_debt_mins": int(global_debt),
+                "tasks_due_today": tasks_due_today,
+                "top_risk_tasks": [],
+            }
+
+        danger_count = 0
+        total_risk = 0
+        scored_tasks = []
+
+        for task in pending_tasks:
+            due_dt = parse_iso(task.get("due_date")) or now_dt
+            created_dt = parse_iso(task.get("created_at")) or now_dt
+            local_due_dt = due_dt.astimezone(user_tz)
+            raw_energy = task.get("energy_level")
+            clean_energy = (
+                {"low": 1, "medium": 2, "high": 3}.get(str(raw_energy).lower(), 2)
+                if isinstance(raw_energy, str)
+                else (int(raw_energy) if isinstance(raw_energy, (int, float)) else 2)
+            )
+            ai_payload = {
+                "snooze_count": int(task.get("snooze_count") or 0),
+                "priority": int(task.get("priority") or 3),
+                "energy_level": clean_energy,
+                "estimated_duration": int(task.get("estimated_duration") or 60),
+                "global_time_debt": global_debt,
+                "tasks_due_same_day": int(tasks_per_day.get(local_due_dt.strftime("%Y-%m-%d"), 1)),
+                "days_since_created": int(max((now_dt - created_dt).days, 1)),
+                "hour_of_due_time": int(local_due_dt.hour),
+                "day_of_week": int(local_due_dt.weekday()),
+            }
+            try:
+                result = _predict_risk(ai_payload)
+                score = int(result["risk_score"] * 100)
+                total_risk += score
+                if score >= 65:
+                    danger_count += 1
+                scored_tasks.append({
+                    "title": task.get("title", "Untitled"),
+                    "risk_score": score,
+                    "risk_label": result["risk_label"],
+                })
+            except Exception:
+                pass
+
+        scored_tasks.sort(key=lambda x: x["risk_score"], reverse=True)
+        avg_risk = int(total_risk / len(scored_tasks)) if scored_tasks else 0
+
+        if danger_count >= 3 or avg_risk >= 65:
+            capacity_status = "OVERLOADED"
+        elif danger_count >= 1 or avg_risk >= 40:
+            capacity_status = "MODERATE"
+        else:
+            capacity_status = "OK"
+
+        return {
+            "status": capacity_status,
+            "danger_count": danger_count,
+            "avg_risk_score": avg_risk,
+            "total_pending": len(pending_tasks),
+            "time_debt_mins": int(global_debt),
+            "tasks_due_today": tasks_due_today,
+            "top_risk_tasks": scored_tasks[:3],
+        }
+    except Exception as e:
+        print(f"[Capacity Error] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/analytics/reset-refunded/{user_id}")
 async def reset_refunded_counter(
     user_id: str,

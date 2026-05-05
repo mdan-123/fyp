@@ -31,7 +31,8 @@ export default function Dashboard() {
     const user = authUser ? { uid: authUser.uid, email: authUser.email || "" } : null;
 
     const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
-    const [preferences, setPreferences] = useState<string[]>([]);
+    type Preference = { id: string; raw_input?: string; category: string; type: string; is_hard: boolean; weight: number; reasoning: string; };
+    const [preferences, setPreferences] = useState<Preference[]>([]);
     const [events, setEvents] = useState<CalendarEvent[]>([]);
     
     const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -142,7 +143,15 @@ export default function Dashboard() {
         if (res.ok) {
           const data = await res.json();
           setLinkedAccounts(data.linked_accounts || []);
-          setPreferences(data.preferences || []);
+        }
+        // Fetch preferences from the dedicated subcollection endpoint
+        const token2 = await auth.currentUser?.getIdToken();
+        const prefRes = await fetchWithRetry(`${API_BASE_URL}/api/preferences/list?userId=${uid}`, {
+          headers: { "Authorization": `Bearer ${token2}` }
+        });
+        if (prefRes.ok) {
+          const prefData = await prefRes.json();
+          setPreferences(prefData.preferences || []);
         }
         await fetchEvents(uid);
       } catch (error) {
@@ -334,11 +343,7 @@ export default function Dashboard() {
 
   const handleOptimiseClick = (date: Date) => {
     setOptimiseTargetDate(date);
-    if (preferences.length >= 3) {
-      executeOptimisationPreview(date);
-    } else {
-      setIsOptimisePrepModalOpen(true);
-    }
+    setIsOptimisePrepModalOpen(true);
   };
 
   const handleContinueOptimisation = async (useGenerics?: boolean) => {
@@ -684,6 +689,7 @@ export default function Dashboard() {
         isOpen={isOptimisePrepModalOpen}
         onClose={() => setIsOptimisePrepModalOpen(false)}
         preferencesCount={preferences.length}
+        preferences={preferences}
         onContinue={handleContinueOptimisation}
       />
 

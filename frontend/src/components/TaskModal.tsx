@@ -65,13 +65,27 @@ export interface Reminder {
   status: "pending" | "delivered" | "dismissed" | "missed";
 }
 
+export interface CapacityData {
+  status: "OK" | "MODERATE" | "OVERLOADED";
+  danger_count: number;
+  avg_risk_score: number;
+  total_pending: number;
+  time_debt_mins: number;
+  tasks_due_today: number;
+  top_risk_tasks: { title: string; risk_score: number; risk_label: string }[];
+}
+
 interface TaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   userId: string;
   editTask?: Task | null;
   onSaveSuccess: () => void;
+  capacityData?: CapacityData | null;
 }
+
+const CAPACITY_DISMISS_KEY = "capacity_warning_dismissed_at";
+const DISMISS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export default function TaskModal({
   isOpen,
@@ -79,6 +93,7 @@ export default function TaskModal({
   userId,
   editTask,
   onSaveSuccess,
+  capacityData,
 }: TaskModalProps) {
   // --- Task States ---
   const [title, setTitle] = useState("");
@@ -98,6 +113,12 @@ export default function TaskModal({
 
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // --- Capacity Warning States ---
+  const [warningDismissed, setWarningDismissed] = useState(false);
+  const [liveRiskScore, setLiveRiskScore] = useState<number | null>(null);
+  const [liveRiskLabel, setLiveRiskLabel] = useState<string | null>(null);
+  const [isComputingRisk, setIsComputingRisk] = useState(false);
 
   // --- Telemetry States ---
   const [snoozeCount, setSnoozeCount] = useState(0);
@@ -125,6 +146,76 @@ export default function TaskModal({
   const [locTriggerOn, setLocTriggerOn] = useState<"entry" | "exit">("entry");
   
   const locDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Reset warning state each time the modal opens for a NEW task
+  useEffect(() => {
+    if (isOpen && !editTask) {
+      const dismissedAt = localStorage.getItem(CAPACITY_DISMISS_KEY);
+      const stillSuppressed =
+        dismissedAt && Date.now() - parseInt(dismissedAt, 10) < DISMISS_TTL_MS;
+      setWarningDismissed(!!stillSuppressed);
+      setLiveRiskScore(null);
+      setLiveRiskLabel(null);
+    }
+  }, [isOpen, editTask]);
+
+  // Live risk preview — recomputes when key form fields change (new tasks only)
+  useEffect(() => {
+    if (editTask || !isOpen || !capacityData || warningDismissed) return;
+    if (capacityData.status === "OK") return;
+
+    const debounce = setTimeout(async () => {
+      try {
+        setIsComputingRisk(true);
+        const token = await auth.currentUser?.getIdToken();
+        const dueDateObj = dueDate ? new Date(dueDate) : null;
+        const energyMap: Record<string, number> = { low: 1, medium: 2, high: 3 };
+        const payload = {
+          snooze_count: 0,
+          priority,
+          energy_level: energyMap[energyLevel] ?? 2,
+          estimated_duration:
+            durationMode !== "flexible" && duration !== ""
+              ? typeof duration === "string"
+                ? parseInt(duration, 10) || 60
+                : duration
+              : 60,
+          global_time_debt: capacityData.time_debt_mins,
+          tasks_due_same_day: dueDateObj
+            ? capacityData.tasks_due_today + 1
+            : capacityData.tasks_due_today,
+          days_since_created: 1,
+          hour_of_due_time: dueDateObj ? dueDateObj.getHours() : new Date().getHours(),
+          day_of_week: dueDateObj ? dueDateObj.getDay() : new Date().getDay(),
+        };
+        const res = await fetchWithRetry(`${API_BASE_URL}/api/analytics/predict_risk`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+          timeoutMs: 8000,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setLiveRiskScore(Math.round(data.risk_score * 100));
+          setLiveRiskLabel(data.risk_label);
+        }
+      } catch {
+        // silently ignore live-risk errors
+      } finally {
+        setIsComputingRisk(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(debounce);
+  }, [priority, energyLevel, dueDate, duration, durationMode, editTask, isOpen, capacityData, warningDismissed]);
+
+  const handleDismissWarning = () => {
+    localStorage.setItem(CAPACITY_DISMISS_KEY, Date.now().toString());
+    setWarningDismissed(true);
+  };
 
   useEffect(() => {
     if (isOpen && userId) {
@@ -489,6 +580,198 @@ export default function TaskModal({
         </div>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-8 scrollbar-hide">
+
+          {/* --- Capacity Warning Banner (new tasks only) --- */}
+          {!editTask && !warningDismissed && capacityData && capacityData.status !== "OK" && (
+            <div
+              className="rounded-2xl p-4 animate-fadeIn"
+              style={{
+                background:
+                  capacityData.status === "OVERLOADED"
+                    ? "var(--color-danger-bg)"
+                    : "var(--color-warning-bg)",
+                border: `1px solid ${
+                  capacityData.status === "OVERLOADED"
+                    ? "var(--color-danger)"
+                    : "var(--color-warning)"
+                }`,
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                  <svg
+                    className="w-5 h-5 flex-shrink-0 mt-0.5"
+                    style={{
+                      color:
+                        capacityData.status === "OVERLOADED"
+                          ? "var(--color-danger)"
+                          : "var(--color-warning)",
+                    }}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                    />
+                  </svg>
+                  <div className="space-y-1.5 min-w-0">
+                    <p
+                      className="text-sm font-bold leading-snug"
+                      style={{
+                        color:
+                          capacityData.status === "OVERLOADED"
+                            ? "var(--color-danger)"
+                            : "var(--color-warning)",
+                      }}
+                    >
+                      {capacityData.status === "OVERLOADED"
+                        ? `You're at high capacity — ${capacityData.danger_count} task${capacityData.danger_count !== 1 ? "s are" : " is"} already at high risk`
+                        : `Your workload is building up — ${capacityData.danger_count} task${capacityData.danger_count !== 1 ? "s need" : " needs"} attention`}
+                    </p>
+                    <p
+                      className="text-xs leading-relaxed"
+                      style={{
+                        color:
+                          capacityData.status === "OVERLOADED"
+                            ? "var(--color-danger)"
+                            : "var(--color-warning)",
+                        opacity: 0.85,
+                      }}
+                    >
+                      {capacityData.total_pending} pending tasks · avg risk{" "}
+                      {capacityData.avg_risk_score}%
+                      {capacityData.time_debt_mins > 0
+                        ? ` · ${Math.round(capacityData.time_debt_mins / 60)}h time debt`
+                        : ""}
+                    </p>
+
+                    {capacityData.top_risk_tasks.length > 0 && (
+                      <div className="pt-1 space-y-1">
+                        {capacityData.top_risk_tasks.map((t, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span
+                              className="text-xs font-medium truncate"
+                              style={{
+                                color:
+                                  capacityData.status === "OVERLOADED"
+                                    ? "var(--color-danger)"
+                                    : "var(--color-warning)",
+                                opacity: 0.9,
+                              }}
+                            >
+                              {t.title}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0 px-1.5 py-0.5 rounded"
+                              style={{
+                                background:
+                                  t.risk_score >= 65
+                                    ? "var(--color-danger)"
+                                    : "var(--color-warning)",
+                                color: "var(--color-bg-base)",
+                              }}
+                            >
+                              {t.risk_score}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Live risk score for this new task */}
+                    {(isComputingRisk || liveRiskScore !== null) && (
+                      <div
+                        className="mt-2 pt-2 flex items-center gap-2"
+                        style={{
+                          borderTop: `1px solid ${
+                            capacityData.status === "OVERLOADED"
+                              ? "var(--color-danger)"
+                              : "var(--color-warning)"
+                          }`,
+                          opacity: 0.9,
+                        }}
+                      >
+                        {isComputingRisk ? (
+                          <span
+                            className="text-xs font-medium animate-pulse"
+                            style={{
+                              color:
+                                capacityData.status === "OVERLOADED"
+                                  ? "var(--color-danger)"
+                                  : "var(--color-warning)",
+                            }}
+                          >
+                            Predicting risk for this task...
+                          </span>
+                        ) : (
+                          <>
+                            <span
+                              className="text-xs font-semibold"
+                              style={{
+                                color:
+                                  capacityData.status === "OVERLOADED"
+                                    ? "var(--color-danger)"
+                                    : "var(--color-warning)",
+                              }}
+                            >
+                              This task:
+                            </span>
+                            <span
+                              className="text-xs font-bold px-2 py-0.5 rounded"
+                              style={{
+                                background:
+                                  liveRiskScore! >= 65
+                                    ? "var(--color-danger)"
+                                    : liveRiskScore! >= 35
+                                    ? "var(--color-warning)"
+                                    : "var(--color-success)",
+                                color: "var(--color-bg-base)",
+                              }}
+                            >
+                              {liveRiskScore}% {liveRiskLabel}
+                            </span>
+                            <span
+                              className="text-xs"
+                              style={{
+                                color:
+                                  capacityData.status === "OVERLOADED"
+                                    ? "var(--color-danger)"
+                                    : "var(--color-warning)",
+                                opacity: 0.75,
+                              }}
+                            >
+                              predicted risk
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDismissWarning}
+                  className="flex-shrink-0 p-1 rounded-lg transition-opacity hover:opacity-70 mt-0.5"
+                  style={{
+                    color:
+                      capacityData.status === "OVERLOADED"
+                        ? "var(--color-danger)"
+                        : "var(--color-warning)",
+                  }}
+                  aria-label="Dismiss warning"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
           
           <div className="space-y-4">
             <input 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
@@ -28,6 +28,27 @@ export interface Reminder {
   trigger_time?: string | null;
   location_data?: LocationData | null;
   status: "pending" | "delivered" | "dismissed" | "missed";
+  priority?: "standard" | "high";
+  repeat?: "none" | "daily" | "weekly" | "monthly" | "custom";
+  custom_repeat_days?: string[];
+}
+
+export interface RiskAlertExplanation {
+  label: string;
+  explanation: string;
+  direction: "increases_risk" | "decreases_risk";
+}
+
+export interface RiskAlert {
+  id: string;
+  task_id: string;
+  task_title: string;
+  task_due_date?: string | null;
+  risk_score: number;
+  risk_label: "HIGH";
+  explanations: RiskAlertExplanation[];
+  status: "pending" | "delivered" | "dismissed";
+  created_at: string;
 }
 
 interface ToastNotification {
@@ -36,18 +57,32 @@ interface ToastNotification {
   title: string;
   body?: string | null;
   type: string;
+  toastKind: "reminder" | "risk_alert";
+  // Reminder-specific extras
+  priority?: "standard" | "high";
+  repeat?: string;
+  custom_repeat_days?: string[];
+  referenceType?: "task" | "event" | "standalone";
+  // Risk-alert-specific extras
+  risk_score?: number;
+  explanations?: RiskAlertExplanation[];
+  task_due_date?: string | null;
 }
 
 interface NotificationContextType {
   pendingReminders: Reminder[];
+  pendingRiskAlerts: RiskAlert[];
   activeToasts: ToastNotification[];
   dismissToast: (toastId: string, reminderId: string) => void;
+  dismissRiskAlert: (toastId: string, alertId: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
   pendingReminders: [],
+  pendingRiskAlerts: [],
   activeToasts: [],
   dismissToast: () => {},
+  dismissRiskAlert: () => {},
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -79,7 +114,11 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => 
 export default function NotificationProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [pendingReminders, setPendingReminders] = useState<Reminder[]>([]);
+  const [pendingRiskAlerts, setPendingRiskAlerts] = useState<RiskAlert[]>([]);
   const [activeToasts, setActiveToasts] = useState<ToastNotification[]>([]);
+  // Tracks reminder IDs already dispatched this session so the 10s timer never
+  // re-fires the same reminder if the API call fails or Firestore is slow to update.
+  const processedReminderIds = useRef<Set<string>>(new Set());
 
   // 1. Listen for Authentication
   useEffect(() => {
@@ -109,6 +148,66 @@ export default function NotificationProvider({ children }: { children: ReactNode
       setPendingReminders(reminders);
     }, (error) => {
       console.error("Error syncing reminders:", error);
+    });
+
+    return () => unsubscribe();
+  }, [userId]);
+
+  // 2b. Real-time Risk Alert Sync
+  useEffect(() => {
+    if (!userId) {
+      setPendingRiskAlerts([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "users", userId, "risk_alerts"),
+      where("status", "==", "pending")
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const alerts: RiskAlert[] = [];
+      snapshot.forEach((doc) => {
+        alerts.push({ id: doc.id, ...doc.data() } as RiskAlert);
+      });
+      setPendingRiskAlerts(alerts);
+
+      // Show a toast for each newly-arrived alert
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const alert = { id: change.doc.id, ...change.doc.data() } as RiskAlert;
+          setActiveToasts((prev) => [
+            ...prev,
+            {
+              id: `risk_toast_${Date.now()}_${alert.id}`,
+              reminderId: alert.id,
+              title: alert.task_title,
+              body: null,
+              type: "risk_alert",
+              toastKind: "risk_alert",
+              risk_score: alert.risk_score,
+              explanations: alert.explanations,
+              task_due_date: alert.task_due_date,
+            },
+          ]);
+          // Also fire a native notification on iOS
+          if (Capacitor.isNativePlatform()) {
+            LocalNotifications.schedule({
+              notifications: [{
+                id: hashStringToNumber(alert.id + "_risk"),
+                title: `⚠️ At-Risk Task: ${alert.task_title}`,
+                body: alert.explanations?.[0]?.explanation ?? "This task has a high probability of being missed.",
+                schedule: { at: new Date(Date.now() + 1000) },
+                extra: { riskAlertId: alert.id },
+                sound: "default",
+              }]
+            }).catch(console.error);
+          }
+          markRiskAlertDelivered(alert.id);
+        }
+      });
+    }, (error) => {
+      console.error("Error syncing risk alerts:", error);
     });
 
     return () => unsubscribe();
@@ -300,9 +399,22 @@ export default function NotificationProvider({ children }: { children: ReactNode
 
       if (triggeredWithToast.length > 0) {
         triggeredWithToast.forEach((rem) => {
+          if (processedReminderIds.current.has(rem.id)) return;
+          processedReminderIds.current.add(rem.id);
           setActiveToasts((prev) => [
             ...prev,
-            { id: `toast_${Date.now()}_${rem.id}`, reminderId: rem.id, title: rem.title, body: rem.body, type: rem.type }
+            {
+              id: `toast_${Date.now()}_${rem.id}`,
+              reminderId: rem.id,
+              title: rem.title,
+              body: rem.body,
+              type: rem.type,
+              toastKind: "reminder",
+              priority: rem.priority,
+              repeat: rem.repeat,
+              custom_repeat_days: rem.custom_repeat_days,
+              referenceType: rem.type as "task" | "event" | "standalone",
+            }
           ]);
           markAsDelivered(rem.id);
         });
@@ -310,13 +422,15 @@ export default function NotificationProvider({ children }: { children: ReactNode
 
       if (triggeredSilently.length > 0) {
         triggeredSilently.forEach((rem) => {
+          if (processedReminderIds.current.has(rem.id)) return;
+          processedReminderIds.current.add(rem.id);
           markAsDelivered(rem.id);
         });
       }
     };
 
-    const intervalId = setInterval(checkAlarms, 10000); 
-    checkAlarms(); 
+    const intervalId = setInterval(checkAlarms, 10000);
+    checkAlarms();
 
     return () => clearInterval(intervalId);
   }, [pendingReminders, userId]);
@@ -324,9 +438,10 @@ export default function NotificationProvider({ children }: { children: ReactNode
   const markAsDelivered = async (reminderId: string) => {
     if (!userId) return;
     try {
+      const token = await auth.currentUser?.getIdToken();
       await fetchWithRetry(`${API_BASE_URL}/api/reminders/update`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ id: reminderId, user_id: userId, status: "delivered" }),
         timeoutMs: 8000
       });
@@ -337,12 +452,12 @@ export default function NotificationProvider({ children }: { children: ReactNode
 
   const dismissToast = async (toastId: string, reminderId: string) => {
     setActiveToasts((prev) => prev.filter((t) => t.id !== toastId));
-    
     if (!userId) return;
     try {
+      const token = await auth.currentUser?.getIdToken();
       await fetchWithRetry(`${API_BASE_URL}/api/reminders/update`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ id: reminderId, user_id: userId, status: "dismissed" }),
         timeoutMs: 8000
       });
@@ -351,43 +466,144 @@ export default function NotificationProvider({ children }: { children: ReactNode
     }
   };
 
+  const markRiskAlertDelivered = async (alertId: string) => {
+    if (!userId) return;
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      await fetchWithRetry(`${API_BASE_URL}/api/risk-alerts/update`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ user_id: userId, alert_id: alertId, status: "delivered" }),
+        timeoutMs: 8000
+      });
+    } catch (error) {
+      console.error("Failed to mark risk alert as delivered", error);
+    }
+  };
+
+  const dismissRiskAlert = async (toastId: string, alertId: string) => {
+    setActiveToasts((prev) => prev.filter((t) => t.id !== toastId));
+    if (!userId) return;
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      await fetchWithRetry(`${API_BASE_URL}/api/risk-alerts/update`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ user_id: userId, alert_id: alertId, status: "dismissed" }),
+        timeoutMs: 8000
+      });
+    } catch (error) {
+      console.error("Failed to dismiss risk alert", error);
+    }
+  };
+
   return (
-    <NotificationContext.Provider value={{ pendingReminders, activeToasts, dismissToast }}>
+    <NotificationContext.Provider value={{ pendingReminders, pendingRiskAlerts, activeToasts, dismissToast, dismissRiskAlert }}>
       {children}
       
       {/* Toast Render Portal - Moved down to clear Dynamic Island */}
       <div className="fixed top-0 right-0 z-[200] p-4 pt-16 sm:p-6 sm:pt-20 flex flex-col gap-3 pointer-events-none mt-[env(safe-area-inset-top,0px)]">
         {activeToasts.map((toast) => (
-          <div 
-            key={toast.id} 
-            className="w-full sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 pointer-events-auto animate-in slide-in-from-top-10 fade-in duration-300 flex items-start gap-3"
-          >
-            <div className="flex-shrink-0 w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
-              </svg>
-            </div>
-            <div className="flex-1 min-w-0 pt-0.5">
-              <p className="text-sm font-bold text-slate-900 truncate">{toast.title}</p>
-              {toast.body && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{toast.body}</p>}
-              <div className="flex items-center gap-3 mt-3">
-                <button 
-                  onClick={() => dismissToast(toast.id, toast.reminderId)}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
-                >
-                  Acknowledge
-                </button>
-              </div>
-            </div>
-            <button 
-              onClick={() => setActiveToasts((prev) => prev.filter((t) => t.id !== toast.id))}
-              className="text-slate-400 hover:text-slate-600 transition-colors flex-shrink-0"
+          toast.toastKind === "risk_alert" ? (
+            // ── Risk Alert Toast ──────────────────────────────────────────
+            <div
+              key={toast.id}
+              className="w-full sm:w-80 bg-white/80 dark:bg-white/5 backdrop-blur-xl border border-amber-300/60 dark:border-amber-500/20 rounded-3xl shadow-lg dark:shadow-black/40 p-4 pointer-events-auto animate-in slide-in-from-top-10 fade-in duration-300 flex items-start gap-3"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+              <div className="flex-shrink-0 w-10 h-10 bg-amber-50 dark:bg-amber-500/10 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0 pt-0.5">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400">At Risk</span>
+                  {toast.risk_score !== undefined && (
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/15 px-1.5 py-0.5 rounded-full">{toast.risk_score}%</span>
+                  )}
+                </div>
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{toast.title}</p>
+                {toast.task_due_date && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Due {new Date(toast.task_due_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                  </p>
+                )}
+                {toast.explanations && toast.explanations.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {toast.explanations.slice(0, 2).map((exp, i) => (
+                      <p key={i} className="text-xs text-slate-500 dark:text-slate-400 flex items-start gap-1">
+                        <span className={exp.direction === "increases_risk" ? "text-red-400" : "text-green-400"}>•</span>
+                        {exp.explanation}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    onClick={() => dismissRiskAlert(toast.id, toast.reminderId)}
+                    className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 transition-colors"
+                  >
+                    Acknowledge
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            // ── Reminder Toast ────────────────────────────────────────────
+            <div
+              key={toast.id}
+              className="w-full sm:w-80 bg-white/80 dark:bg-white/5 backdrop-blur-xl border border-slate-200/60 dark:border-white/10 rounded-3xl shadow-lg dark:shadow-black/40 p-4 pointer-events-auto animate-in slide-in-from-top-10 fade-in duration-300 flex items-start gap-3"
+            >
+              <div className="flex-shrink-0 w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0 pt-0.5">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                  {toast.priority === "high" && (
+                    <span className="text-xs font-bold uppercase tracking-wide text-rose-500">High Priority</span>
+                  )}
+                  {toast.referenceType && toast.referenceType !== "standalone" && (
+                    <span className="text-xs text-slate-400 capitalize">{toast.referenceType} reminder</span>
+                  )}
+                  {toast.repeat && toast.repeat !== "none" && (
+                    <span className="text-xs text-indigo-500">
+                      {toast.repeat === "custom" && toast.custom_repeat_days?.length
+                        ? `Repeats ${toast.custom_repeat_days.join(", ")}`
+                        : `Repeats ${toast.repeat}`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{toast.title}</p>
+                {toast.body && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{toast.body}</p>}
+                <div className="flex items-center gap-3 mt-3">
+                  <button
+                    onClick={() => dismissToast(toast.id, toast.reminderId)}
+                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 transition-colors"
+                  >
+                    Acknowledge
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+                className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )
         ))}
       </div>
     </NotificationContext.Provider>

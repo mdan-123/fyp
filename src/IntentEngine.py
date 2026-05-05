@@ -1,9 +1,6 @@
-# ===============================================================
-# database_handlers.py
-# Execution layer — only CREATE_EVENT is fully implemented.
-# All other intents are placeholders for incremental development.
-# ===============================================================
 
+
+import os
 import uuid
 import datetime as dt
 from datetime import timezone
@@ -11,12 +8,15 @@ import zoneinfo
 import dateparser
 import json
 import re
+from dotenv import load_dotenv
+load_dotenv("./.env.local")
 from google.cloud import firestore
 from google import genai
 from google.genai import types
 from custom_exceptions import AmbiguityError, SlotConflictError
 
 from categorise import categorise_event
+from llm_parser import ConstraintParser
 
 class IntentExecutionEngine:
     def __init__(self, db_client: firestore.Client, nlu_engine=None, gemini_api_key: str = None):
@@ -24,10 +24,12 @@ class IntentExecutionEngine:
         self.nlu_engine = nlu_engine
         self.gemini_api_key = gemini_api_key
 
+        _constraint_key = os.getenv("GEMINI_API_KEY", gemini_api_key or "")
         if self.gemini_api_key:
             self.genai_client = genai.Client(api_key=self.gemini_api_key)
         else:
             self.genai_client = None
+        self.constraint_parser = ConstraintParser(_constraint_key) if _constraint_key else None
 
     def _find_next_available_slot(self, user_id: str, start_iso: str, end_iso: str,
                                 exclude_doc_id: str = None) -> tuple[str, str]:
@@ -2421,7 +2423,63 @@ class IntentExecutionEngine:
 
 
 
-    def handle_set_preferences(self, entities: dict, user_id: str, raw_text: str = "") -> dict: return self._placeholder_handler("SET_PREFERENCES", entities, user_id, raw_text)
+    def handle_set_preferences(self, entities: dict, user_id: str, raw_text: str = "") -> dict:
+        print("\n" + "="*60)
+        print(">>> [SetPreferences] EXECUTING HANDLER <<<")
+        print("="*60)
+        print(f"  [Input] Raw Text: '{raw_text}'")
+
+        if not self.constraint_parser:
+            return {
+                "status": "error",
+                "message": "Preference parsing is unavailable — no Gemini API key configured.",
+                "data": {}
+            }
+
+        try:
+            parsed = self.constraint_parser.parse(raw_text)
+            if not parsed:
+                return {
+                    "status": "error",
+                    "message": "I couldn't understand that preference. Try rephrasing it.",
+                    "data": {}
+                }
+
+            # Normalise to a list (ConstraintParser may return a single dict or a list)
+            constraints = parsed if isinstance(parsed, list) else [parsed]
+
+            prefs_ref = (
+                self.db.collection("users")
+                .document(user_id)
+                .collection("preferences")
+            )
+            saved = []
+            for constraint in constraints:
+                new_ref = prefs_ref.document()
+                new_ref.set(constraint)
+                saved.append({"id": new_ref.id, **constraint})
+                print(f"  [SetPreferences] Saved: {constraint}")
+
+            count = len(saved)
+            summary = (
+                f"I've saved {count} preference{'s' if count > 1 else ''}: "
+                + ", ".join(
+                    f"{c.get('category', 'ALL')} {c.get('type', '').lower()}"
+                    for c in constraints
+                )
+                + "."
+            )
+
+            print(f"\n>>> [SetPreferences] COMPLETE — {count} preference(s) saved <<<\n")
+            return {
+                "status": "success",
+                "message": summary,
+                "data": {"saved_preferences": saved},
+            }
+
+        except Exception as e:
+            print(f"❌ [SetPreferences] Unhandled exception: {e}")
+            raise
 
     def get_intent_map(self) -> dict:
         return {

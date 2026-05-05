@@ -24,10 +24,12 @@ class SchedulerNLU:
         print(f"Loading NER Model from {ner_path}...")
         self.ner_pipe = pipeline("token-classification", model=ner_path, aggregation_strategy="simple")
         
+        # Gemini is optional — only used when local models lack confidence
         self.gemini_client = None
         if gemini_api_key:
             self.gemini_client = genai.Client(api_key=gemini_api_key)
 
+        # Pre-compiled regex for catching time expressions the NER model may miss
         self._time_regex = re.compile(
             r'\b(\d{1,2}(:\d{2})?\s*(am|pm)|noon|midnight|'
             r'morning|afternoon|evening|tonight|'
@@ -42,7 +44,8 @@ class SchedulerNLU:
             "locations": [], "durations": [], "recurrence": [], "reminders": [],
             "preferences": [], "conditions": []
         }
-        
+
+        # Merge adjacent tokens of the same type into single spans using character offsets
         merged_ner = []
         for ent in raw_ner:
             label = ent.get('entity_group', ent.get('entity', '')).lower().replace('b-', '').replace('i-', '')
@@ -66,7 +69,7 @@ class SchedulerNLU:
             end = ent['end']
             
             if merged_ner and merged_ner[-1]['label'] == label and (start - merged_ner[-1]['end'] <= 1):
-                merged_ner[-1]['end'] = end
+                merged_ner[-1]['end'] = end  # extend the previous span
             else:
                 merged_ner.append({'label': label, 'start': start, 'end': end})
                 
@@ -88,32 +91,35 @@ class SchedulerNLU:
             
         return entities
 
-    # --- THE FIX: DYNAMIC TIMEZONE INJECTION ---
     def normalise_time(self, entities, user_timezone="UTC"):
+        """Convert extracted date/time entities to a UTC ISO string, anchored to the user's timezone."""
         try:
             tz = zoneinfo.ZoneInfo(user_timezone)
         except zoneinfo.ZoneInfoNotFoundError:
             tz = zoneinfo.ZoneInfo("UTC")
             user_timezone = "UTC"
-            
+
         dates = entities.get("dates", [])
         times = entities.get("times", [])
-        
+
+        # Fall back to sensible defaults when no date/time was extracted
         date_str = dates[0] if dates else "today"
         time_str = times[0] if times else "09:00"
-        
+
         weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         date_lower = date_str.lower().strip()
-        
+
+        # Bare weekday name — resolve to the next upcoming occurrence
         if date_lower in weekdays:
             target_day = weekdays.index(date_lower)
             today = dt.datetime.now(tz)
             today_weekday = today.weekday()
             days_until = (target_day - today_weekday) % 7
             if days_until == 0:
-                days_until = 7
+                days_until = 7  # "monday" when today is monday means next monday
             parsed_date = today + dt.timedelta(days=days_until)
         else:
+            # "next monday" / "this friday" style phrases
             match = re.match(r'(next|this)\s+(' + '|'.join(weekdays) + r')', date_lower)
             if match:
                 prefix, weekday = match.groups()
@@ -190,8 +196,8 @@ class SchedulerNLU:
 
         return extracted
 
-    # --- THE FIX: DYNAMIC TIMEZONE INJECTION ---
     def calculate_end_time(self, start_iso, entities, user_timezone="UTC"):
+        """Derive an end timestamp from a second time entity, a duration, or a default 1-hour window."""
         if not start_iso:
             return None
             
@@ -199,7 +205,8 @@ class SchedulerNLU:
         
         times = entities.get("times", [])
         durations = entities.get("durations", [])
-        
+
+        # Prefer an explicit end time (second time entity) over a duration
         if len(times) > 1:
             dates = entities.get("dates", [])
             date_str = dates[0] if dates else "today"
@@ -225,15 +232,16 @@ class SchedulerNLU:
             )
             
             if end_parsed:
+                # If end parsed as earlier than start, it's likely an am/pm ambiguity — nudge forward
                 if end_parsed <= start_dt:
-                    end_parsed += dt.timedelta(hours=12) 
+                    end_parsed += dt.timedelta(hours=12)
                     if end_parsed <= start_dt:
                         end_parsed += dt.timedelta(hours=12)
                 return end_parsed.isoformat().replace("+00:00", "Z")
-                
+
         if durations and durations[0]:
             duration_str = durations[0].lower()
-            minutes = 60 
+            minutes = 60  # default if parsing fails
             
             if "min" in duration_str:
                 nums = re.findall(r'\d+', duration_str)
@@ -250,9 +258,9 @@ class SchedulerNLU:
         return end_dt.isoformat().replace("+00:00", "Z")
 
 
-    # --- THE FIX: THREADING user_timezone INTO LLM ---
     def llm_fallback(self, user_input: str, reason: str, user_context: str = "", chat_history: str = "", user_timezone: str = "UTC"):
-        if not self.gemini_client: 
+        """Escalate to Gemini when local models can't produce a confident result."""
+        if not self.gemini_client:
             print("[LLM Escalation] Triggered but no Gemini API key provided.")
             return None
 
@@ -305,6 +313,7 @@ class SchedulerNLU:
         }}
         """
 
+        # Retry with exponential backoff in case of transient API errors
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -314,7 +323,7 @@ class SchedulerNLU:
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 data = json.loads(response.text)
-                data["source"] = "LLM_Escalation" 
+                data["source"] = "LLM_Escalation"
                 data["text"]   = user_input
                 return data
             except Exception as e:
@@ -322,16 +331,17 @@ class SchedulerNLU:
                 time.sleep(2 ** attempt)
         return None
 
-    # --- THE FIX: THREADING user_timezone FROM ROUTER ---
     def process(self, text: str, user_context: str = "", chat_history: str = "", user_timezone: str = "UTC"):
+        """Run the full NLU pipeline: intent classification → NER → timestamp resolution."""
         inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
         with torch.no_grad():
             logits = self.intent_model(**inputs).logits
-            
+
+        # Multi-label sigmoid — collect every intent that clears the confidence threshold
         probs = torch.sigmoid(logits).squeeze().cpu().numpy()
-        if probs.ndim == 0: 
+        if probs.ndim == 0:
             probs = np.array([probs])
-            
+
         predicted_intents = []
         intent_scores = {}
         for idx, prob in enumerate(probs):
@@ -339,10 +349,11 @@ class SchedulerNLU:
                 intent_label = self.intent_model.config.id2label[idx]
                 predicted_intents.append(intent_label)
                 intent_scores[intent_label] = float(prob)
-        
+
         raw_ner = self.ner_pipe(text)
         entities = self.format_entities(raw_ner, text)
 
+        # Fill gaps in NER output with regex-extracted time/date/duration spans
         regex_extras = self._extract_time_entities_regex(text)
         for field in ("times", "dates", "durations"):
             if not entities[field] and regex_extras[field]:
@@ -350,12 +361,14 @@ class SchedulerNLU:
 
         ent_count = sum(len(v) for v in entities.values() if isinstance(v, list))
 
+        # Hard override: trigger phrase is unambiguous enough to bypass the classifier
         if "remind me" in text.lower() or "set a reminder" in text.lower():
             if "SET_REMINDER" not in predicted_intents:
                 predicted_intents.append("SET_REMINDER")
                 print("[Intent Override] Forced SET_REMINDER based on trigger phrase.")
 
         reason = None
+        # These intents are valid even with no extracted entities
         entity_optional_intents = {"QUERY_EVENT", "QUERY_TASK", "FIND_FREE_TIME"}
 
         if not predicted_intents: 
@@ -380,6 +393,7 @@ class SchedulerNLU:
             fallback = self.llm_fallback(text, reason, user_context, chat_history, user_timezone)
             print(f"[LLM Fallback] Reason: {reason}")
             if fallback:
+                # Resolve the origin day for move/bulk operations into a UTC timestamp
                 source_date = fallback["entities"].get("source_date")
                 if source_date:
                     source_ts = self.normalise_time(

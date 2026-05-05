@@ -2,10 +2,13 @@
 
 import { useRouter } from "next/navigation";
 
+type Preference = { id: string; raw_input?: string; category: string; reasoning: string; };
+
 interface OptimisationPrepModalProps {
   isOpen: boolean;
   onClose: () => void;
   preferencesCount: number;
+  preferences?: Preference[];
   onContinue: (useGenerics?: boolean) => void;
 }
 
@@ -13,9 +16,34 @@ export default function OptimisationPrepModal({
   isOpen, 
   onClose, 
   preferencesCount,
+  preferences = [],
   onContinue 
 }: OptimisationPrepModalProps) {
   const router = useRouter();
+
+  const showUserPreferences = preferencesCount >= 3;
+
+  const genericPreferences = [
+    { label: "Protect 1 hour for lunch daily", color: 'var(--color-warning)', icon: (
+      <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    )},
+    { label: "Keep a 15-min buffer between meetings", color: 'var(--color-info)', icon: (
+      <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      </svg>
+    )},
+    { label: "Schedule Deep Work in the mornings", color: 'var(--color-accent-primary)', icon: (
+      <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+      </svg>
+    )},
+  ];
+
+  const displayedPreferences = showUserPreferences
+    ? preferences.slice(0, 5)
+    : genericPreferences;
 
   if (!isOpen) return null;
 
@@ -69,9 +97,11 @@ export default function OptimisationPrepModal({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42" />
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold tracking-tight transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>Set Your Ground Rules</h3>
+              <h3 className="text-xl font-semibold tracking-tight transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{showUserPreferences ? 'Your Optimisation Rules' : 'Set Your Ground Rules'}</h3>
               <p className="text-sm leading-relaxed transition-colors duration-200" style={{ color: 'var(--color-text-secondary)' }}>
-                You currently have <strong className="transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{preferencesCount}</strong> preference{preferencesCount === 1 ? '' : 's'} set. Our AI works best with a strong baseline of rules. Would you like to add these standard constraints before optimising?
+                {showUserPreferences
+                  ? <>You have <strong className="transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{preferencesCount}</strong> preference{preferencesCount === 1 ? '' : 's'} set. The AI will use these rules to optimise your schedule.</>
+                  : <>You currently have <strong className="transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{preferencesCount}</strong> preference{preferencesCount === 1 ? '' : 's'} set. Our AI works best with a strong baseline of rules. Would you like to add these standard constraints before optimising?</>}
               </p>
             </div>
 
@@ -82,64 +112,57 @@ export default function OptimisationPrepModal({
                 border: '1px solid var(--color-border)',
               }}
             >
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-500"
-                  style={{
-                    background: 'var(--color-warning)',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>Protect 1 hour for lunch daily</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-500"
-                  style={{
-                    background: 'var(--color-info)',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>Keep a 15-min buffer between meetings</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div 
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-500"
-                  style={{
-                    background: 'var(--color-accent-primary)',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>Schedule Deep Work in the mornings</p>
-              </div>
+              {showUserPreferences ? (
+                (displayedPreferences as Preference[]).map((pref) => (
+                  <div key={pref.id} className="flex items-center gap-3">
+                    <div 
+                      className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-500"
+                      style={{
+                        background: 'var(--color-accent-primary)',
+                        boxShadow: 'var(--shadow-sm)',
+                      }}
+                    >
+                      <svg className="w-4 h-4" style={{ color: 'var(--color-bg-base)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{pref.raw_input || pref.reasoning}</p>
+                  </div>
+                ))
+              ) : (
+                (genericPreferences).map((pref, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div 
+                      className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors duration-500"
+                      style={{
+                        background: pref.color,
+                        boxShadow: 'var(--shadow-sm)',
+                      }}
+                    >
+                      {pref.icon}
+                    </div>
+                    <p className="text-sm font-medium transition-colors duration-200" style={{ color: 'var(--color-text-primary)' }}>{pref.label}</p>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="space-y-3 pt-2">
-            <button 
-              onClick={() => onContinue(true)}
-              className="w-full py-3 px-4 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] btn-primary"
-            >
-              Add these & Optimise
-            </button>
+            {!showUserPreferences && (
+              <button 
+                onClick={() => onContinue(true)}
+                className="w-full py-3 px-4 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] btn-primary"
+              >
+                Add these & Optimise
+              </button>
+            )}
             <button 
               onClick={() => onContinue(false)}
-              className="w-full py-3 px-4 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] btn-secondary"
+              className={`w-full py-3 px-4 text-sm font-semibold rounded-xl transition-all active:scale-[0.98] ${showUserPreferences ? 'btn-primary' : 'btn-secondary'}`}
             >
-              Optimise with current settings
+              {showUserPreferences ? 'Optimise' : 'Optimise with current settings'}
             </button>
             <button 
               onClick={handleGoToSettings}

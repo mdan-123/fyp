@@ -11,7 +11,7 @@ import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 
 const API_BASE_URL = "https://danishs-macbook-pro.tail79ab0c.ts.net";
-
+// main page
 export default function LoginPage() {
   const router = useRouter();
   
@@ -107,7 +107,6 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4 relative overflow-hidden transition-colors duration-500" style={{ background: "var(--color-bg-base)" }}>
-      {/* Decorative Orbs handled entirely by body::before in global.css */}
       
       <div 
         className="w-full max-w-md animate-fade-in-up transition-colors duration-500"

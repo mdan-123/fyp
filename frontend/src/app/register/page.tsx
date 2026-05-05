@@ -21,7 +21,7 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // --- New Timezone States ---
+  // New Timezone States 
   const [timezones, setTimezones] = useState<string[]>([]);
   const [selectedZone, setSelectedZone] = useState<string>("");
   const [currentTimePreview, setCurrentTimePreview] = useState<string>("");

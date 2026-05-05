@@ -82,10 +82,14 @@ async def lifespan(app: FastAPI):
     # Start the preference-parsing background worker
     import asyncio
     from routers.pref_queue import worker as pref_worker
+    from routers.risk_alerts import risk_alert_worker
     pref_task = asyncio.create_task(pref_worker())
+    risk_task = asyncio.create_task(risk_alert_worker())
     print("Preference queue worker started.")
+    print("Risk alert background scanner started.")
     yield
     pref_task.cancel()
+    risk_task.cancel()
     print("Shutting down.")
 
 
@@ -112,6 +116,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 from routers import auth, calendar, tasks, reminders, preferences
 from routers import analytics, ai, users, places, location, search, vocabulary
+from routers import risk_alerts
 
 app.include_router(auth.router)
 app.include_router(calendar.router)
@@ -125,6 +130,7 @@ app.include_router(places.router)
 app.include_router(location.router)
 app.include_router(search.router)
 app.include_router(vocabulary.router)
+app.include_router(risk_alerts.router)
 
 
 if __name__ == "__main__":

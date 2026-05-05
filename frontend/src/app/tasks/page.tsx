@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import NavigationBar from "@/components/NavigationBar";
-import TaskModal, { Task } from "@/components/TaskModal";
+import TaskModal, { Task, CapacityData } from "@/components/TaskModal";
 import CustomCalendar from "@/components/CustomCalendar";
 import { fetchWithRetry } from "@/lib/fetchUtils"; 
 import { App as CapacitorApp } from '@capacitor/app'; 
@@ -34,6 +34,8 @@ export default function TasksPage() {
   const [energyFilter, setEnergyFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("");
+
+  const [capacityData, setCapacityData] = useState<CapacityData | null>(null);
 
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [previewToggle, setPreviewToggle] = useState<"original" | "optimised">("optimised");
@@ -92,9 +94,30 @@ export default function TasksPage() {
     return Array.from(tagSet).sort();
   }, [tasks]);
 
-  const handleOpenNewTask = () => {
+  const handleOpenNewTask = async () => {
     setEditingTask(null);
+    setCapacityData(null);
     setIsModalOpen(true);
+    // Fetch capacity in the background — modal opens immediately, warning appears once data arrives
+    if (userId) {
+      try {
+        const token = await user?.getIdToken();
+        const res = await fetchWithRetry(
+          `${API_BASE_URL}/api/analytics/capacity/${userId}`,
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+            timeoutMs: 8000,
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setCapacityData(data);
+        }
+      } catch {
+        // silently ignore — warning just won't show
+      }
+    }
   };
 
   const handleEditTask = (task: Task) => {
@@ -1100,7 +1123,8 @@ export default function TasksPage() {
           onClose={() => setIsModalOpen(false)} 
           userId={userId} 
           editTask={editingTask} 
-          onSaveSuccess={() => { fetchTasks(userId); setSelectedTaskIds([]); }} 
+          onSaveSuccess={() => { fetchTasks(userId); setSelectedTaskIds([]); }}
+          capacityData={editingTask ? null : capacityData}
         />
       )}
       {userId && (
